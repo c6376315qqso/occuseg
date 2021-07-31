@@ -1,5 +1,5 @@
 # import open3d
-
+import open3d
 from datasets import ScanNet
 from utils import evaluate_scannet, evaluate_stanford3D,WeightedCrossEntropyLoss, FocalLoss, label2color,evaluate_single_scan,cost2color
 from model import ThreeVoxelKernel
@@ -30,7 +30,7 @@ import nvgpu
 import sys, os, time
 import logging
 import json
-
+from tqdm import tqdm
 
 # only holds when the optimization is zero! a bad cost function, could be further optimized?
 # cannot explain well, how should we encourage the displacements to be correct?
@@ -397,7 +397,7 @@ def train_net(net, config):
 
         pLabel = []
         tLabel = []
-        for i, batch in enumerate(config['train_data_loader']):
+        for i, batch in enumerate(tqdm((config['train_data_loader']))):
             # checked
             # logger.debug("CHECK RANDOM SEED(torch seed): sample id {}".format(batch['id']))
             torch.cuda.empty_cache()
@@ -428,6 +428,9 @@ def train_net(net, config):
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
 #            print(losses['drift_loss'].item())
+
+            if i % 50 == 49:
+                print('loss: %.2f' % loss.item())
 
             train_writer.add_scalar("train/loss", loss.item(), global_step=epoch_len * epoch + i)
             predict_label = logits.cpu().max(1)[1].numpy()

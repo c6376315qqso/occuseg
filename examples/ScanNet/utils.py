@@ -219,7 +219,7 @@ def get_iou(label_id, confusion):
         fp = np.longlong(confusion[label_id, :].sum()) - tp
         fn = np.longlong(confusion[:, label_id].sum()) - tp
         denom = (tp + fp + fn)
-        if denom == 0:  
+        if tp + fn == 0:  
                 return False
         return (float(tp) / denom, tp, denom, fp, fn)
 
