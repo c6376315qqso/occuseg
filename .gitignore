@@ -5,10 +5,9 @@ __pycache__
 sparseconvnet.egg-info
 .vscode
 .idea
-examples/ScanNet/datasets/simple_data/
-examples/ScanNet/ckpts
+examples/ScanNet/datasets/simple_data/*
+examples/ScanNet/ckpts/*
 examples/ScanNet/datasets/scannet_data/
-extra/cudpp/ext/cub
 examples/ScanNet/q.log
 examples/ScanNet/runs
 examples/ScanNet/.zt_*
@@ -18,3 +17,4 @@ examples/ScanNet/semantic_prediction/
 examples/ScanNet/results/
 examples/ScanNet/INTERRUPTED.pth
 *.out
+!.gitkeep
