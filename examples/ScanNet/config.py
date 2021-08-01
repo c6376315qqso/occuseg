@@ -72,7 +72,7 @@ def get_args():
     # select data
     parser.add_option('--use_train_data',default='o012', type='str',help='c:color, d:depth, n:normal as feature')
     parser.add_option('--use_val_data',default='o', type='str',help='c:color, d:depth, n:normal as feature')
-
+    parser.add_option('--model_type', default='occ', type='str', help='occ: occupancy, uncertain: uncertain')
 
 
     (options, args) = parser.parse_args()
@@ -119,6 +119,8 @@ def ArgsToConfig(args):
     config['regress_sigma'] = args.regress_sigma
     config['regress_weight'] = args.regress_weight
     config['displacement_weight'] = args.displacement_weight
+
+    config['model_type'] = args.model_type
     # c: color, n: normal, d: depth define in tangentnet, h: height(z axis value)
     config['input_feature_number']=0
     if 'l' in config['use_feature']:

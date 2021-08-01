@@ -6,6 +6,7 @@ from sklearn.neighbors import KDTree
 import pdb
 from torch_scatter import scatter_mean,scatter_std,scatter_add,scatter_max
 from tqdm import tqdm
+import os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('training logger')
@@ -474,7 +475,8 @@ class ScanNetOnline(object):
     def __init__(self,
                  train_pth_path,
                  val_pth_path,
-                 config):
+                 config,
+                 train_seq_path='/home/leyao/scannetTrainSeq'):
         if isinstance(train_pth_path,list):
             self.train_pths = []
             for train_pth in train_pth_path:
@@ -483,7 +485,7 @@ class ScanNetOnline(object):
             self.train_pths = glob.glob(train_pth_path)
         self.val_pths = glob.glob(val_pth_path)
         self.train, self.val = [], []
-
+        self.train_seq_path = train_seq_path
         self.blur0 = np.ones((3, 1, 1)).astype('float32') / 3
         self.blur1 = np.ones((1, 3, 1)).astype('float32') / 3
         self.blur2 = np.ones((1, 1, 3)).astype('float32') / 3
@@ -540,9 +542,13 @@ class ScanNetOnline(object):
         region_indexs = []
         instance_masks = []
         instance_sizes = []
+        scene_masks_list = []
         for idx, i in enumerate(tbl):
 
             a, b, c = train[i]['coords'], train[i]['colors'], train[i]['w']
+            name = self.train_pths[i][self.train_pths[i].find('scene'):self.train_pths[i].find('scene')+12]
+            scene_masks = torch.load(os.path.join(self.train_seq_path, name, 'online_masks', 'm25_50_75.pth'))
+            num_per_scene = scene_masks.shape[0]
             if 'normal' in train[i]:
                 d = train[i]['normals']
             else:
@@ -591,7 +597,6 @@ class ScanNetOnline(object):
             offset = (np.min(a[:, 0]) - 10, np.min(a[:, 1]) - 10, np.min(a[:, 2]) - 10) + np.random.rand(3)
             
             a = a - offset
-            idxs = (a.min(1) >= 0) * (a.max(1) < self.full_scale)
             # random drop part of the point clouds
 
             """
@@ -618,81 +623,95 @@ class ScanNetOnline(object):
             # randomly zoom out one class
 #            idxs[c == (3+np.random.randint(14))] = 0
 #            idxs[c == (3-np.random.randint(14))] = 0
-            a = a[idxs]
-            b = b[idxs]
-            c = c[idxs].astype(np.int32)
-            d = d[idxs]
-            e = e[idxs]
-            region_numpy = region_parts[idxs]
-            region = torch.from_numpy(region_numpy)
-            [region_index, region_mask] = np.unique(region_numpy, False, True)
-            region_mask = torch.from_numpy(region_mask)
-            region_index = torch.from_numpy(region_index)
-            #        a=torch.from_numpy(a).long()
+
+            scene_masks = torch.cat([scene_masks, torch.ones(a.shape[0]).byte()], dim=0)
+            
+            a_ = np.copy(a)
+            b_ = np.copy(b)
+            c_ = np.copy(c).astype(np.int32)
+            d_ = np.copy(d)
+            e_ = np.copy(e)
+            c_[:,1] = np.unique(c_[:,1], False, True)[1]
+            for partial_id in range(scene_masks.shape[0]):
+                idxs = scene_masks[partial_id]
+                region_numpy = region_parts[idxs]
+                region = torch.from_numpy(region_numpy)
+                [region_index, region_mask] = np.unique(region_numpy, False, True)
+                region_mask = torch.from_numpy(region_mask)
+                region_index = torch.from_numpy(region_index)
+                #        a=torch.from_numpy(a).long()
+                a = a_[idxs]
+                b = b_[idxs]
+                c = c_[idxs]
+                d = d_[idxs]
+                e = e_[idxs]
+
+                
+                a = torch.from_numpy(a).float()
+                e = torch.from_numpy(e).float()
+                # generate masks for each instance:
+                instance_mask = c[:,1]
+                instance_size = scatter_add(torch.ones([a.shape[0]]), torch.Tensor(instance_mask).long(), dim = 0)
+                instance_size = torch.gather(instance_size, dim = 0, index = torch.Tensor(instance_mask).long())
+                mask = torch.zeros((a.shape[0], np.max(c[:,1]) + 1), dtype=torch.float32)
+                mask[torch.arange(a.shape[0]), c[:,1].astype(np.int32)] = 1
 
 
-            # generate masks for each instance:
-            c[:,1] = np.unique(c[:,1], False, True)[1]
-            instance_mask = c[:,1]
-            instance_size = scatter_add(torch.ones([a.shape[0]]), torch.Tensor(instance_mask).long(), dim = 0)
-            instance_size = torch.gather(instance_size, dim = 0, index = torch.Tensor(instance_mask).long())
-            mask = torch.zeros((a.shape[0], np.max(c[:,1]) + 1), dtype=torch.float32)
-            mask[torch.arange(a.shape[0]), c[:,1].astype(np.int32)] = 1
 
-            a = torch.from_numpy(a).float()
-            e = torch.from_numpy(e).float()
+                displacement = torch.zeros([a.shape[0],3], dtype = torch.float32)
+                offset = torch.zeros(a.shape[0], dtype = torch.float32)
+                for count in range(mask.shape[1]):
+                    indices = mask[:,count] == 1
+    #                cls = torch.from_numpy(c[:,0])[indices][0]
+    #                if(cls > 1):
+    #                    random_shift = (torch.rand(3)) * self.scale * 3 # randomly shift 3 meters
+    #                    random_shift[2] = 0
+    #                    a[indices,:] += random_shift
+                    if torch.sum(indices) == 0:
+                        continue
+                    mean = torch.mean(a[indices,:],dim = 0)
+                    distance = torch.norm(a[indices,:] - mean,dim = 1)
+                    offset[indices] = torch.exp(- (distance / self.scale/  self.regress_sigma ) ** 2 )
+                    displacement[indices,:] = (a[indices,:] - mean) / self.scale
 
-            displacement = torch.zeros([a.shape[0],3], dtype = torch.float32)
-            offset = torch.zeros(a.shape[0], dtype = torch.float32)
-            for count in range(mask.shape[1]):
-                indices = mask[:,count] == 1
-#                cls = torch.from_numpy(c[:,0])[indices][0]
-#                if(cls > 1):
-#                    random_shift = (torch.rand(3)) * self.scale * 3 # randomly shift 3 meters
-#                    random_shift[2] = 0
-#                    a[indices,:] += random_shift
-                mean = torch.mean(a[indices,:],dim = 0)
-                distance = torch.norm(a[indices,:] - mean,dim = 1)
-                offset[indices] = torch.exp(- (distance / self.scale/  self.regress_sigma ) ** 2 )
-                displacement[indices,:] = (a[indices,:] - mean) / self.scale
+                totalPoints = totalPoints + a.shape[0]
+                #            if totalPoints < 1500000:
+                if True:
+                    locs.append(torch.cat([a, torch.FloatTensor(a.shape[0], 1).fill_(idx * num_per_scene + partial_id)], 1))
 
-            totalPoints = totalPoints + a.shape[0]
-            #            if totalPoints < 1500000:
-            if True:
-                locs.append(torch.cat([a, torch.FloatTensor(a.shape[0], 1).fill_(idx)], 1))
-
-                lf = a - torch.mean(a, dim = 0).view(1,-1).expand_as(a)
-                l_feature = lf.div(torch.norm(lf, p=2, dim=1).view(-1,1).expand_as(lf))
-                color = torch.from_numpy(b).float() + torch.randn(3).float() * 0.1
-                color = torch.clamp(color, -1, 1)
-                tmp_feature = []
-                if 'l' in self.use_feature:
-                    tmp_feature.append(l_feature)
-                if 'c' in self.use_feature:
-                    tmp_feature.append(color)
-                if 'n' in self.use_feature:
-                    tmp_feature.append(torch.from_numpy(d).float())
-                if 'd' in self.use_feature:
-                    tmp_feature.append(e)
-                if 'h' in self.use_feature:
-                    tmp_feature.append(a[:, 2:3])
-                # concat in channel dim
-                tmp_feature = torch.cat(tmp_feature, dim=1)
-                feats.append(tmp_feature)
-                sizes.append(torch.tensor(np.unique(c[:,1]).size))
-                masks.append(mask)
-                regions.append(region)
-                region_masks.append(region_mask)
-                region_indexs.append(region_index)
-                labels.append(torch.from_numpy(c))
-                normals.append(torch.from_numpy(d).float().cpu())
-                offsets.append(offset)
-                displacements.append(displacement)
-                instance_masks.append(torch.Tensor(instance_mask))
-                instance_sizes.append(instance_size)
-                index_list.append(torch.from_numpy(idxs.astype(int)))
-            else:
-                print("lost file for training: ", self.train_pths[i])
+                    lf = a - torch.mean(a, dim = 0).view(1,-1).expand_as(a)
+                    l_feature = lf.div(torch.norm(lf, p=2, dim=1).view(-1,1).expand_as(lf))
+                    color = torch.from_numpy(b).float() + torch.randn(3).float() * 0.1
+                    color = torch.clamp(color, -1, 1)
+                    tmp_feature = []
+                    if 'l' in self.use_feature:
+                        tmp_feature.append(l_feature)
+                    if 'c' in self.use_feature:
+                        tmp_feature.append(color)
+                    if 'n' in self.use_feature:
+                        tmp_feature.append(torch.from_numpy(d).float())
+                    if 'd' in self.use_feature:
+                        tmp_feature.append(e)
+                    if 'h' in self.use_feature:
+                        tmp_feature.append(a[:, 2:3])
+                    # concat in channel dim
+                    tmp_feature = torch.cat(tmp_feature, dim=1)
+                    feats.append(tmp_feature)
+                    sizes.append(torch.tensor(np.unique(c[:,1]).size))
+                    masks.append(mask)
+                    regions.append(region)
+                    region_masks.append(region_mask)
+                    region_indexs.append(region_index)
+                    labels.append(torch.from_numpy(c))
+                    normals.append(torch.from_numpy(d).float().cpu())
+                    offsets.append(offset)
+                    displacements.append(displacement)
+                    instance_masks.append(torch.Tensor(instance_mask))
+                    instance_sizes.append(instance_size)
+                    index_list.append(torch.from_numpy(idxs.astype(int)))
+                    scene_masks_list.append(scene_masks)
+                else:
+                    print("lost file for training: ", self.train_pths[i])
 
         local_batch_size = len(locs)
         locs = torch.cat(locs, 0)
@@ -721,7 +740,10 @@ class ScanNetOnline(object):
                 'displacements':displacements,
                 'regions':regions,
                 'region_masks':region_masks,
-                'region_indexs':region_indexs}
+                'region_indexs':region_indexs, 
+                'online_masks': masks,
+                'num_per_scene': masks.shape[0],
+                'scene_masks_list': scene_masks_list}
 
     def valMerge(self, tbl, val, valOffsets):
         locs = []

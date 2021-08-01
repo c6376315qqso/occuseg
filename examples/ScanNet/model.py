@@ -761,6 +761,34 @@ class LearningBWDenseUNet(nn.Module):
         occupancy = self.relu_occupancy(self.linear_occupancy(self.fc_occupancy(feature)))
         return semantics, feature, embedding, offset, displacement, bw, occupancy
 
+
+class UncertainDenseUNet(nn.Module):
+    def __init__(self, config):
+        nn.Module.__init__(self)
+
+        self.config = config
+        self.backbone = InstanceDenseUNet(config)
+#        if(os.path.exists(config['backbone_network'])):
+#            self.backbone.load_state_dict(torch.load(config['backbone_network']))
+
+
+        self.fc_bw = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
+        self.linear_bw = nn.Linear(self.backbone.output_feature_dim , 2)
+        self.relu_bw = nn.Softplus()
+
+        self.fc_uncertain = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
+        self.linear_uncertain = nn.Linear(self.backbone.output_feature_dim , 1)
+        self.sigmoid_uncertain = nn.Sigmoid()
+
+
+    def forward(self, x):
+
+        semantics, feature, embedding, offset, displacement = self.backbone(x)
+        bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
+        uncertainty = self.sigmoid_uncertain(self.linear_uncertain(self.fc_uncertain(feature)))
+        return semantics, feature, embedding, offset, displacement, bw, uncertainty
+
+
 class ClusterSegNet(nn.Module):
     def __init__(self, config, feature_dim):
         nn.Module.__init__(self)
