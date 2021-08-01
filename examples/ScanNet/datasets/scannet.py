@@ -476,7 +476,7 @@ class ScanNetOnline(object):
                  train_pth_path,
                  val_pth_path,
                  config,
-                 train_seq_path='/home/leyao/scannetTrainSeq'):
+                 train_seq_path='./datasets/scannetTrainSeq'):
         if isinstance(train_pth_path,list):
             self.train_pths = []
             for train_pth in train_pth_path:

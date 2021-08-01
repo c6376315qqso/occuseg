@@ -1,4 +1,5 @@
 # import open3d
+from examples.ScanNet.datasets.scannet import ScanNetOnline
 import open3d
 from datasets import ScanNet
 from utils import evaluate_scannet, evaluate_stanford3D,WeightedCrossEntropyLoss, FocalLoss, label2color,evaluate_single_scan,cost2color
@@ -804,11 +805,17 @@ def preprocess():
             train_pth_path='datasets/{}/simple/{}/{}'.format(dataset_dir, train_dataset_mid_dir, pth_reg_exp)
             val_pth_path='datasets/{}/simple/{}/{}'.format(dataset_dir, test_dataset_mid_dir, pth_reg_exp)
         print(train_pth_path, val_pth_path)
-        dataset = ScanNet(train_pth_path=train_pth_path,
-                          val_pth_path=val_pth_path,
-                          config = config,
-                          )
-
+        if config['model_type'] == 'occ':
+            dataset = ScanNet(train_pth_path=train_pth_path,
+                            val_pth_path=val_pth_path,
+                            config = config,
+                            )
+        elif config['model_type'] == 'uncertain':
+            dataset = ScanNetOnline(train_pth_path=train_pth_path,
+                            val_pth_path=val_pth_path,
+                            config = config,
+                            train_pth_path='./datasets/scannetTrainSeq'
+                            )
 
     # log the config to tensorboard
     tmp_config_str = ''
