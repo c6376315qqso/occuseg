@@ -133,6 +133,7 @@ class DiscriminativeLoss(nn.Module):
     def forward(self, embedded,instance_mask):
         centroids = self._new_centroids(embedded, instance_mask)
         L_v = self._new_variance(embedded, instance_mask, centroids)
+        # instance num
         size = torch.max(instance_mask,dim = 1)[0] + 1
         L_d = self._distance(centroids, size)
         L_r = self._regularization(centroids, size)
@@ -180,6 +181,8 @@ class DiscriminativeLoss(nn.Module):
             devation = torch.clamp(devation - self.delta_v, min=0.0) ** 2
             loss += devation.mean()
         return loss
+
+
     def _variance(self, embedded, masks, centroids, size):
         batch_size = embedded.size(0)
         num_points = embedded.size(1)

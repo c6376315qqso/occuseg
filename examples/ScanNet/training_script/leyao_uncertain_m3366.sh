@@ -2,11 +2,11 @@
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
    source activate p1
-   TASK_NAME=uncertain
+   TASK_NAME=uncertain_m3366
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\
-   --batch_size 1\
+   --batch_size 2\
    --loss cross_entropy \
    --optim Adam \
    --lr 1e-3 \
@@ -29,7 +29,8 @@
    --use_dense_model \
    --use_elastic \
    --model_type uncertain \
-   --gpu 2
+   --gpu 1\
+   --mask_name m33_66.pth
 #    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train

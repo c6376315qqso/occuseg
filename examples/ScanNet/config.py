@@ -74,7 +74,8 @@ def get_args():
     parser.add_option('--use_val_data',default='o', type='str',help='c:color, d:depth, n:normal as feature')
     parser.add_option('--model_type', default='occ', type='str', help='occ: occupancy, uncertain: uncertain')
 
-
+    parser.add_option('--gpu', default='0', type='int', help='use which gpu')
+    parser.add_option('--mask_name', default='m25_50_75.pth', type='str')
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -89,6 +90,8 @@ def ArgsToConfig(args):
     config['block_reps'] = args.block_reps
     config['batch_size'] = args.batch_size
 
+    config['mask_name'] = args.mask_name
+    config['gpu'] = args.gpu
     config['scale'] = args.scale
     config['val_reps'] = args.val_reps
     config['dimension'] = args.dimension

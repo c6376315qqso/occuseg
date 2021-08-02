@@ -43,8 +43,10 @@ class ScanNet(object):
         self.use_rotation_noise = config['use_rotation_noise']
         self.regress_sigma = config['regress_sigma']
         self.PRINT_ONCE_FLAG = 0
+        torch.cuda.set_device(config['gpu'])
         torch.manual_seed(100)  # cpu
         torch.cuda.manual_seed(100)  # gpu
+        print('gpu id:', torch.cuda.current_device())
         np.random.seed(100)  # numpy
         torch.backends.cudnn.deterministic = True  # cudnn
 
@@ -479,10 +481,12 @@ class ScanNetOnline(object):
                  train_seq_path='./datasets/scannetTrainSeq'):
         if isinstance(train_pth_path,list):
             self.train_pths = []
+            
             for train_pth in train_pth_path:
                 self.train_pths += glob.glob(train_pth)
         else:
             self.train_pths = glob.glob(train_pth_path)
+        self.train_scene_masks = []
         self.val_pths = glob.glob(val_pth_path)
         self.train, self.val = [], []
         self.train_seq_path = train_seq_path
@@ -499,6 +503,7 @@ class ScanNetOnline(object):
         self.use_feature = config['use_feature']
         self.use_rotation_noise = config['use_rotation_noise']
         self.regress_sigma = config['regress_sigma']
+        self.partial_masks_name = config['mask_name']
         self.PRINT_ONCE_FLAG = 0
         torch.manual_seed(100)  # cpu
         torch.cuda.manual_seed(100)  # gpu
@@ -534,7 +539,6 @@ class ScanNetOnline(object):
         index_list = []
         totalPoints = 0
         sizes = []
-        masks = []
         offsets = []
         displacements = []
         regions = []
@@ -547,7 +551,7 @@ class ScanNetOnline(object):
 
             a, b, c = train[i]['coords'], train[i]['colors'], train[i]['w']
             name = self.train_pths[i][self.train_pths[i].find('scene'):self.train_pths[i].find('scene')+12]
-            scene_masks = torch.load(os.path.join(self.train_seq_path, name, 'online_masks', 'm25_50_75.pth'))
+            scene_masks = self.train_scene_masks[i]
             num_per_scene = scene_masks.shape[0] + 1
             if 'normal' in train[i]:
                 d = train[i]['normals']
@@ -651,15 +655,14 @@ class ScanNetOnline(object):
                 instance_mask = c[:,1]
                 instance_size = scatter_add(torch.ones([a.shape[0]]), torch.Tensor(instance_mask).long(), dim = 0)
                 instance_size = torch.gather(instance_size, dim = 0, index = torch.Tensor(instance_mask).long())
-                mask = torch.zeros((a.shape[0], np.max(c[:,1]) + 1), dtype=torch.float32)
-                mask[torch.arange(a.shape[0]), c[:,1].astype(np.int32)] = 1
 
+                instance_num = np.max(c[:,1]) + 1
 
 
                 displacement = torch.zeros([a.shape[0],3], dtype = torch.float32)
                 offset = torch.zeros(a.shape[0], dtype = torch.float32)
-                for count in range(mask.shape[1]):
-                    indices = mask[:,count] == 1
+                for count in range(instance_num):
+                    indices = torch.from_numpy(instance_mask == count).byte()
     #                cls = torch.from_numpy(c[:,0])[indices][0]
     #                if(cls > 1):
     #                    random_shift = (torch.rand(3)) * self.scale * 3 # randomly shift 3 meters
@@ -695,7 +698,6 @@ class ScanNetOnline(object):
                     tmp_feature = torch.cat(tmp_feature, dim=1)
                     feats.append(tmp_feature)
                     sizes.append(torch.tensor(np.unique(c[:,1]).size))
-                    masks.append(mask)
                     regions.append(region)
                     region_masks.append(region_mask)
                     region_indexs.append(region_index)
@@ -729,7 +731,6 @@ class ScanNetOnline(object):
         return {'x': [locs, feats, normals, local_batch_size], 'y': labels.long(), 'id': tbl, 'elastic_locs': a,
                 'pth_file': pth_files,
                 'idxs': index_list,
-                'masks': masks,
                 'instance_masks':instance_masks,
                 'instance_sizes':instance_sizes,
                 'sizes':sizes,
@@ -901,10 +902,21 @@ class ScanNetOnline(object):
                 'region_indexs':region_indexs}
 
     def load_data(self):
+        # avoid open file number limits.https://www.cnblogs.com/zhengbiqing/p/10478311.html
+        torch.multiprocessing.set_sharing_strategy('file_system')
+
+
         for x in tqdm(torch.utils.data.DataLoader(
                 self.train_pths,
-                collate_fn=lambda x: torch.load(x[0]), num_workers=mp.cpu_count())):
+                collate_fn=lambda x: torch.load(x[0]), 
+                num_workers=mp.cpu_count())):
             self.train.append(x)
+        for x in tqdm(torch.utils.data.DataLoader(
+                self.train_pths,
+                collate_fn=lambda x: torch.load(os.path.join(self.train_seq_path, x[0][x[0].find('scene'):x[0].find('scene')+12], 'online_masks', self.partial_masks_name)), 
+                num_workers=mp.cpu_count())):
+            self.train_scene_masks.append(x)
+
         for x in tqdm(torch.utils.data.DataLoader(
                 self.val_pths,
                 collate_fn=lambda x: torch.load(x[0]), num_workers=mp.cpu_count())):

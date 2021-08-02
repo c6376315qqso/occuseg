@@ -1,4 +1,7 @@
 # import open3d
+
+
+
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
 from datasets import ScanNet
@@ -30,8 +33,11 @@ import nvgpu
 
 import sys, os, time
 import logging
+import math
 import json
 from tqdm import tqdm
+import os
+
 
 # only holds when the optimization is zero! a bad cost function, could be further optimized?
 # cannot explain well, how should we encourage the displacements to be correct?
@@ -209,8 +215,6 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
         index = (batch['x'][0][:,config['dimension']] == count)
         embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
         instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
-        mask = batch['masks'][count].view(1,-1,batch['masks'][count].shape[1])
-        size = batch['sizes'][count:count+1]
         pred_semantics = batch['y'][index,0]
         EmbeddingLoss += criterion['discriminative'](embedding, instance_mask)
 
@@ -259,6 +263,63 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'occupancy_loss': OccupancyLoss}
 
+def calculate_cost_online_eval(predictions, embeddings, offsets, displacements, bw, criterion, batch):
+    tbl = batch['id']
+    #lovasz_softmax(predictions, batch['y'][:,0], ignore = -100)
+    SemanticLoss = criterion['nll'](predictions, batch['y'][:,0])
+    EmbeddingLoss = torch.zeros(1,dtype=torch.float32).cuda()
+    DisplacementLoss = torch.zeros(1,dtype=torch.float32).cuda()
+    loss_classification = torch.zeros(1,dtype=torch.float32).cuda()
+    loss_drift = torch.zeros(1,dtype=torch.float32).cuda()
+    instance_iou = torch.zeros(1,dtype=torch.float32).cuda()
+
+    batchSize = 0
+    forground_indices = batch['y'][:,0] > 1
+    regressed_pose = batch['x'][0][:,0:3].cuda() / config['scale'] - displacements
+    pose = batch['x'][0][:,0:3].cuda() / config['scale']
+    displacements_gt = batch['displacements'].cuda()
+    for count,idx in enumerate(tbl):
+        index = (batch['x'][0][:,config['dimension']] == count)
+        embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
+        instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
+        pred_semantics = batch['y'][index,0]
+        EmbeddingLoss += criterion['discriminative'](embedding, instance_mask)
+
+        displacement_error = torch.zeros(1,dtype=torch.float32).cuda()
+        cluster_size = 0
+
+        displacement_cluster_error = scatter_mean(torch.norm(displacements[index,:]- displacements_gt[index,:], dim = 1), instance_mask.view(-1),dim = 0)
+#        true_occupancy = scatter_mean(torch.norm(occupancy_gt[index,:], dim = 1 ), instance_mask.view(-1),dim = 0)
+#        pred_occupancy = scatter_mean(torch.norm(occupancy[index,:], dim = 1 ), instance_mask.view(-1),dim = 0)
+
+        mask_size = instance_mask[0,:].max() + 1
+        for mid in range(mask_size):
+            instance_indices = (instance_mask[0,:]==mid)
+            cls = pred_semantics[instance_indices][0]
+            if(cls > 1):
+                displacement_error += displacement_cluster_error[mid]
+#                current_occupancy = occupancy[index,:]
+#                median_occupancy = torch.median(current_occupancy[instance_indices,:])
+#                print(cls.item(), torch.exp(pred_occupancy[mid]).item(),torch.exp(median_occupancy).item(), torch.exp(true_occupancy[mid]).item())
+                cluster_size += 1
+        if cluster_size > 0:
+            DisplacementLoss += displacement_error / cluster_size
+        loss_c, i_iou = ClassificationLoss(embedding,bw[index,:].view(1,-1,2), regressed_pose[index,:].view(1,-1,3), pose[index,:].view(1,-1,3), instance_mask,pred_semantics)
+        loss_classification += loss_c
+        instance_iou += i_iou
+
+#        loss_drift += 50 * DriftLoss(embedding,mask.cuda(),pred_semantics,regressed_pose[index,:].view(1,-1,3),batch['offsets'][index,:], pose[index,:].view(1,-1,3))      #We want to align anchor points to mu as close as possible
+
+        batchSize += 1
+    EmbeddingLoss /= batchSize
+    DisplacementLoss /= batchSize
+    loss_classification /= batchSize
+    loss_drift /= batchSize
+    instance_iou /= batchSize
+    RegressionLoss = criterion['regression'](offsets[forground_indices ], batch['offsets'].cuda()[forground_indices ]) * config['regress_weight']
+    #del RegressionLoss
+    return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
+            'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou}
 
 def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain):
     tbl = batch['id']
@@ -289,7 +350,9 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
             uncertain_gt = uncertain_gt.detach()
             uncertain_gt = uncertain_gt.view(-1,1).float()
+            # print(torch.sum(uncertain_gt), uncertain_gt.shape)
             UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
+        
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
             pred_semantics = batch['y'][index,0]
@@ -316,16 +379,23 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             instance_iou += i_iou
 
     #        loss_drift += 50 * DriftLoss(embedding,mask.cuda(),pred_semantics,regressed_pose[index,:].view(1,-1,3),batch['offsets'][index,:], pose[index,:].view(1,-1,3))      #We want to align anchor points to mu as close as possible
-
             batchSize += 1
+
+    # print(UncertainLoss)
     UncertainLoss /= batchSize
+    UncertainLoss *= 1.5
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
     loss_drift /= batchSize
     instance_iou /= batchSize
     #print('previous occupancy loss: ', PreOccupancyLoss.item(),OccupancyLoss.item(),'    ', PreDisplacementLoss.item(),DisplacementLoss.item())
-    RegressionLoss = criterion['regression'](offsets[forground_indices ], batch['offsets'].cuda()[forground_indices ]) * config['regress_weight']
+    if torch.sum(forground_indices) != 0:
+        RegressionLoss = criterion['regression'](offsets[forground_indices], batch['offsets'].cuda()[forground_indices]) * config['regress_weight']
+    else:
+        RegressionLoss = torch.zeros(1, dtype=torch.float32).cuda()
+
+
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'uncertain_loss': UncertainLoss}
 
@@ -415,6 +485,92 @@ def evaluate(net, config, global_iter):
         predLabels = store.max(1)[1].numpy()
         iou_evaluate(predLabels, valLabels, train_writer, global_iter,class_num = config['class_num'] ,  topic='valid')
         train_writer.add_scalar("valid/time", time.time() - time_val_start, global_step=global_iter)
+
+def evaluate_online(net, config, global_iter):
+    valOffsets = config['valOffsets']
+    val_data_loader = config['val_data_loader']
+    valLabels = config['valLabels']
+
+
+    criterion = {}
+    criterion['discriminative'] = DiscriminativeLoss(
+        DISCRIMINATIVE_DELTA_D,
+        DISCRIMINATIVE_DELTA_V
+    )
+    criterion['nll'] = nn.functional.cross_entropy
+    criterion['regression'] = nn.L1Loss()
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss()
+
+    with torch.no_grad():
+        net.eval()
+        store = torch.zeros(valOffsets[-1], config['class_num'])
+        scn.forward_pass_multiplyAdd_count = 0
+        scn.forward_pass_hidden_states = 0
+        time_val_start = time.time()
+        for rep in range(1, 1 + dataset.val_reps):
+            locs = None
+            pth_files = []
+            epoch_len = len(config['val_data_loader'])
+            regression_loss = 0
+            semantic_loss = 0
+            embedding_loss = 0
+            displacement_loss = 0
+            drift_loss = 0
+            classification_loss = 0
+            uncertain_loss = 0
+            instance_iou = 0
+            for i, batch in enumerate(val_data_loader):
+                torch.cuda.empty_cache()
+#                print("before net 0", nvgpu.gpu_info()[0]['mem_used'])
+                batch['x'][1] = batch['x'][1].cuda()
+                predictions, feature, embeddings, offsets, displacements, bw, uncertain = net(batch['x'])
+#                print("after net 0", nvgpu.gpu_info()[0]['mem_used'])
+
+                batch['y'] = batch['y'].cuda()
+                batch['region_masks'] =  batch['region_masks'].cuda()
+                batch['offsets'] =  batch['offsets'].cuda()
+                batch['displacements'] =  batch['displacements'].cuda()
+                batch_size = 0
+                tbl = batch['id']
+                losses = calculate_cost_online_eval(predictions,embeddings,offsets,displacements,bw, criterion,batch)
+                regression_loss += losses['regression_loss'].item()
+                embedding_loss += losses['embedding_loss'].item()
+                semantic_loss += losses['semantic_loss'].item()
+                displacement_loss += losses['displacement_loss'].item()
+                classification_loss += losses['classification_loss'].item()
+                drift_loss += losses['drift_loss'].item()
+                instance_iou += losses['instance_iou'].item()
+                predictions = predictions.cpu()
+                store.index_add_(0, batch['point_ids'], predictions)
+                #visualize based on predictions, use open3D for convinence
+                if config['evaluate']:
+                    visualize_point_cloud(batch,predictions)
+#                            open3d.visualization.draw_geometries([pcd_ori, pcd_gt_label, pcd_predict_label])
+
+                # loop for all val set every snap shot is tooooo slow, pls use val.py to check individually
+                # if save_ply:
+                #     print("evaluate data: ", i)
+                #     iou.visualize_label(batch, predictions, rep, save_dir=config['checkpoints_dir'] +)
+            predLabels = store.max(1)[1].numpy()
+            topic = 'valid_' + str(rep)
+            iou_evaluate(predLabels, valLabels, train_writer, global_iter, class_num = config['class_num'] , topic=topic)
+            train_writer.add_scalar(topic + "/epoch_avg_displacement_closs",  displacement_loss / epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_regression_closs",  regression_loss / epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_embedding_closs", embedding_loss / epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_semantic_closs", semantic_loss/ epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_classification_closs", classification_loss / epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_drift_closs", drift_loss/ epoch_len, global_step=global_iter)
+            train_writer.add_scalar(topic + "/epoch_avg_instance_precision", instance_iou/ epoch_len, global_step=global_iter)
+
+            print('infer', rep, 'time=', time.time() - time_val_start, 's')
+            if config['evaluate']:
+                savemat('pred.mat', {'p':store.numpy(),'val_offsets':np.hstack(valOffsets), 'v': valLabels})
+            torch.cuda.empty_cache()
+
+        predLabels = store.max(1)[1].numpy()
+        iou_evaluate(predLabels, valLabels, train_writer, global_iter,class_num = config['class_num'] ,  topic='valid')
+        train_writer.add_scalar("valid/time", time.time() - time_val_start, global_step=global_iter)
+
 
 
 def train_net(net, config):
@@ -565,7 +721,6 @@ def train_net(net, config):
 
 
 def train_uncertain(net, config):
-    torch.autograd.set_detect_anomaly(True)
     if config['optim'] == 'SGD':
         optimizer = optim.SGD(net.parameters(), lr=config['lr'])
     elif config['optim'] == 'Adam':
@@ -644,7 +799,7 @@ def train_uncertain(net, config):
             embedding_loss += losses['embedding_loss'].item()
             displacement_loss += losses['displacement_loss'].item()
             classification_loss += losses['classification_loss'].item()
-            uncertain += losses['uncertain_loss'].item()
+            uncertain_loss += losses['uncertain_loss'].item()
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
 #            print(losses['drift_loss'].item())
@@ -654,7 +809,7 @@ def train_uncertain(net, config):
 
             train_writer.add_scalar("train/loss", loss.item(), global_step=epoch_len * epoch + i)
             predict_label = logits.cpu().max(1)[1].numpy()
-            true_label = batch['y'][:,0].detach()
+            true_label = batch['y'][:,0].detach().cpu()
             pLabel.append(torch.from_numpy(predict_label))
             tLabel.append(true_label)
             train_loss += loss.item()
@@ -668,9 +823,9 @@ def train_uncertain(net, config):
 #            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
 #            print("after backward: ", memory_used)
 
-        torch.cuda.empty_cache()
-        pLabel = torch.cat(pLabel,0).cpu().numpy()
-        tLabel = torch.cat(tLabel,0).cpu().numpy()
+        #torch.cuda.empty_cache()
+        pLabel = torch.cat(pLabel,0).numpy()
+        tLabel = torch.cat(tLabel,0).numpy()
         mIOU = iou_evaluate(pLabel, tLabel, train_writer ,epoch,class_num = config['class_num'] ,  topic = 'train')
         train_writer.add_scalar("train/epoch_avg_loss", train_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_loss", embedding_loss/ epoch_len, global_step= (epoch + 1))
@@ -697,7 +852,7 @@ def train_uncertain(net, config):
             torch.cuda.empty_cache()
 #            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
 #            print("after empty cache: ", memory_used)
-            evaluate(net=net, config=config, global_iter=(epoch + 1))
+            evaluate_online(net=net, config=config, global_iter=(epoch + 1))
             torch.save(net.state_dict(), config['checkpoints_dir'] + 'Epoch{}.pth'.format(epoch + 1))
 
         if config['gamma'] != 0 and (epoch + 1) % config['step_size'] == 0:
@@ -714,14 +869,17 @@ def train_uncertain(net, config):
 
 
 def preprocess():
+    args = get_args()
+    config = ArgsToConfig(args)
+
+    torch.cuda.set_device(args.gpu)
+
     torch.manual_seed(100)  # cpu
     torch.cuda.manual_seed(100)  # gpu
     np.random.seed(100)  # numpy
     torch.backends.cudnn.deterministic = True  # cudnn
 
     # setup config
-    args = get_args()
-    config = ArgsToConfig(args)
     # choose kernel size
     # if config['kernel_size'] == 3:
     #     Model = ThreeVoxelKernel
@@ -795,6 +953,7 @@ def preprocess():
     #        else:
     #            raise
 
+
         if args.dataset == 'stanford3d':
             pth_reg_exp = '*.pth'
             test_scene = 5
@@ -815,6 +974,7 @@ def preprocess():
                             config = config,
                             )
         elif config['model_type'] == 'uncertain':
+            train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
             dataset = ScanNetOnline(train_pth_path=train_pth_path,
                             val_pth_path=val_pth_path,
                             config = config,
