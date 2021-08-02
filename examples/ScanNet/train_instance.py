@@ -1,6 +1,6 @@
 # import open3d
 from examples.ScanNet.datasets.scannet import ScanNetOnline
-import open3d
+# import open3d
 from datasets import ScanNet
 from utils import evaluate_scannet, evaluate_stanford3D,WeightedCrossEntropyLoss, FocalLoss, label2color,evaluate_single_scan,cost2color
 from model import ThreeVoxelKernel
@@ -282,10 +282,13 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         complete_batch_id = (count + 1) * batch['num_per_scene'] - 1
         complete_index = (batch['x'][0][:,config['dimension']] == complete_batch_id)
         for partial_id in range(batch['num_per_scene']):
+
             batch_id = count * batch['num_per_scene'] + partial_id
             scene_mask = scene_masks[partial_id]
             index = (batch['x'][0][:,config['dimension']] == batch_id)
             uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
+            uncertain_gt = uncertain_gt.detach()
+            uncertain_gt = uncertain_gt.view(-1,1).float()
             UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
@@ -562,6 +565,7 @@ def train_net(net, config):
 
 
 def train_uncertain(net, config):
+    torch.autograd.set_detect_anomaly(True)
     if config['optim'] == 'SGD':
         optimizer = optim.SGD(net.parameters(), lr=config['lr'])
     elif config['optim'] == 'Adam':
@@ -593,7 +597,7 @@ def train_uncertain(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCELoss()
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss()
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -802,8 +806,8 @@ def preprocess():
                     train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, 'full' , 'Area_'+str(candidate_sence)+'_*.pth'))
 
         if config['simple_train'] == True:
-            train_pth_path='datasets/{}/simple/{}/{}'.format(dataset_dir, train_dataset_mid_dir, pth_reg_exp)
-            val_pth_path='datasets/{}/simple/{}/{}'.format(dataset_dir, test_dataset_mid_dir, pth_reg_exp)
+            train_pth_path='datasets/simple_data/{}'.format(pth_reg_exp)
+            val_pth_path='datasets/simple_data/{}'.format(pth_reg_exp)
         print(train_pth_path, val_pth_path)
         if config['model_type'] == 'occ':
             dataset = ScanNet(train_pth_path=train_pth_path,
@@ -814,7 +818,7 @@ def preprocess():
             dataset = ScanNetOnline(train_pth_path=train_pth_path,
                             val_pth_path=val_pth_path,
                             config = config,
-                            train_pth_path='./datasets/scannetTrainSeq'
+                            train_seq_path='./datasets/scannetTrainSeq'
                             )
 
     # log the config to tensorboard

@@ -7,7 +7,7 @@ import pdb
 from torch_scatter import scatter_mean,scatter_std,scatter_add,scatter_max
 from tqdm import tqdm
 import os
-
+import time
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('training logger')
 logger.setLevel(logging.DEBUG)
@@ -548,7 +548,7 @@ class ScanNetOnline(object):
             a, b, c = train[i]['coords'], train[i]['colors'], train[i]['w']
             name = self.train_pths[i][self.train_pths[i].find('scene'):self.train_pths[i].find('scene')+12]
             scene_masks = torch.load(os.path.join(self.train_seq_path, name, 'online_masks', 'm25_50_75.pth'))
-            num_per_scene = scene_masks.shape[0]
+            num_per_scene = scene_masks.shape[0] + 1
             if 'normal' in train[i]:
                 d = train[i]['normals']
             else:
@@ -624,7 +624,7 @@ class ScanNetOnline(object):
 #            idxs[c == (3+np.random.randint(14))] = 0
 #            idxs[c == (3-np.random.randint(14))] = 0
 
-            scene_masks = torch.cat([scene_masks, torch.ones(a.shape[0]).byte()], dim=0)
+            scene_masks = torch.cat([scene_masks, torch.ones(1, a.shape[0]).byte()], dim=0)
             
             a_ = np.copy(a)
             b_ = np.copy(b)
@@ -632,8 +632,8 @@ class ScanNetOnline(object):
             d_ = np.copy(d)
             e_ = np.copy(e)
             c_[:,1] = np.unique(c_[:,1], False, True)[1]
-            for partial_id in range(scene_masks.shape[0]):
-                idxs = scene_masks[partial_id]
+            for partial_id in range(num_per_scene):
+                idxs = scene_masks[partial_id].numpy().astype('bool')
                 region_numpy = region_parts[idxs]
                 region = torch.from_numpy(region_numpy)
                 [region_index, region_mask] = np.unique(region_numpy, False, True)
@@ -645,8 +645,6 @@ class ScanNetOnline(object):
                 c = c_[idxs]
                 d = d_[idxs]
                 e = e_[idxs]
-
-                
                 a = torch.from_numpy(a).float()
                 e = torch.from_numpy(e).float()
                 # generate masks for each instance:
@@ -678,7 +676,6 @@ class ScanNetOnline(object):
                 #            if totalPoints < 1500000:
                 if True:
                     locs.append(torch.cat([a, torch.FloatTensor(a.shape[0], 1).fill_(idx * num_per_scene + partial_id)], 1))
-
                     lf = a - torch.mean(a, dim = 0).view(1,-1).expand_as(a)
                     l_feature = lf.div(torch.norm(lf, p=2, dim=1).view(-1,1).expand_as(lf))
                     color = torch.from_numpy(b).float() + torch.randn(3).float() * 0.1
@@ -708,10 +705,10 @@ class ScanNetOnline(object):
                     displacements.append(displacement)
                     instance_masks.append(torch.Tensor(instance_mask))
                     instance_sizes.append(instance_size)
-                    index_list.append(torch.from_numpy(idxs.astype(int)))
-                    scene_masks_list.append(scene_masks)
+                    index_list.append(idxs)
                 else:
                     print("lost file for training: ", self.train_pths[i])
+            scene_masks_list.append(scene_masks)
 
         local_batch_size = len(locs)
         locs = torch.cat(locs, 0)
@@ -741,8 +738,7 @@ class ScanNetOnline(object):
                 'regions':regions,
                 'region_masks':region_masks,
                 'region_indexs':region_indexs, 
-                'online_masks': masks,
-                'num_per_scene': masks.shape[0],
+                'num_per_scene': num_per_scene,
                 'scene_masks_list': scene_masks_list}
 
     def valMerge(self, tbl, val, valOffsets):

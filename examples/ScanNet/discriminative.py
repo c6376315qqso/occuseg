@@ -56,6 +56,8 @@ def ClassificationLoss(embedded, bw, regressed_pose,pose,instance_mask,pred_sema
         mask_size = instance_mask[i,:].max() + 1
         for mid in range(mask_size):
             instance_indices = (instance_mask[i,:]==mid)
+            if instance_indices.sum(0) == 0:
+                continue
             cls = pred_semantics[instance_indices][0]
             if(cls > -1):
                 instance_indices = (instance_mask[i,:]==mid)

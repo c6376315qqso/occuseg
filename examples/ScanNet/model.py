@@ -778,14 +778,14 @@ class UncertainDenseUNet(nn.Module):
 
         self.fc_uncertain = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
         self.linear_uncertain = nn.Linear(self.backbone.output_feature_dim , 1)
-        self.sigmoid_uncertain = nn.Sigmoid()
+        # self.sigmoid_uncertain = nn.Sigmoid()
 
 
     def forward(self, x):
 
         semantics, feature, embedding, offset, displacement = self.backbone(x)
         bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
-        uncertainty = self.sigmoid_uncertain(self.linear_uncertain(self.fc_uncertain(feature)))
+        uncertainty = self.linear_uncertain(self.fc_uncertain(feature))
         return semantics, feature, embedding, offset, displacement, bw, uncertainty
 
 

@@ -6,7 +6,7 @@
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\
-   --batch_size 4\
+   --batch_size 2\
    --loss cross_entropy \
    --optim Adam \
    --lr 1e-3 \
@@ -28,7 +28,8 @@
    --use_feature c \
    --use_dense_model \
    --use_elastic \
-   --model_type uncertain
+   --model_type uncertain \
+#    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train
 #   --checkpoint_file ckpts/lhanaf_dense_m32r1b4_instance_validation_l2/Epoch400.pth
