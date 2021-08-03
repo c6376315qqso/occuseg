@@ -7,7 +7,8 @@ sparseconvnet.egg-info
 .idea
 examples/ScanNet/datasets/simple_data/*
 examples/ScanNet/ckpts/*
-examples/ScanNet/datasets/scannet_data/
+examples/ScanNet/datasets/scannetTrainSeq
+examples/ScanNet/datasets/scannet_data
 examples/ScanNet/q.log
 examples/ScanNet/runs
 examples/ScanNet/.zt_*
