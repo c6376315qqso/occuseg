@@ -321,7 +321,7 @@ def calculate_cost_online_eval(predictions, embeddings, offsets, displacements, 
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou}
 
-def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain):
+def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain, epoch):
     tbl = batch['id']
     #lovasz_softmax(predictions, batch['y'][:,0], ignore = -100)
     SemanticLoss = criterion['nll'](predictions, batch['y'][:,0])
@@ -351,7 +351,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             uncertain_gt = uncertain_gt.detach()
             uncertain_gt = uncertain_gt.view(-1,1).float()
             # print(torch.sum(uncertain_gt), uncertain_gt.shape)
-            UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
+            if epoch > 40:
+                UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
         
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
@@ -787,7 +788,7 @@ def train_uncertain(net, config):
             batch['displacements'] =  batch['displacements'].cuda()
 
 
-            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain)
+            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch)
             #classification loss
 
 
