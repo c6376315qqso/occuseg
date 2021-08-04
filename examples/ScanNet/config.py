@@ -19,7 +19,7 @@ def get_args():
     parser.add_option('--checkpoints_dir', dest='checkpoints_dir', default='./ckpts/', help='checkpoints_dir')
     parser.add_option('--snapshot', dest='snapshot', default=1, type='float', help='snapshot every x epoch')
     parser.add_option('--display', dest='display', default=10, type='float', help='display')
-
+    parser.add_option('--restore', default=False, action='store_true')
     # tensorboardX visualization
     # parser.add_option('--tensorboard_log_dir', type='str', default='./log')
     parser.add_option('--taskname', type='str', default='default_name')
@@ -114,7 +114,7 @@ def ArgsToConfig(args):
     config['rotation_guide_level'] = args.rotation_guide_level
     config['evaluate'] = args.evaluate
     config['backbone_network'] = args.backbone_network
-
+    config['restore'] = args.restore
     config['use_normal'] = args.use_normal
     config['use_elastic'] = args.use_elastic
     config['use_feature'] = args.use_feature

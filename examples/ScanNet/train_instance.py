@@ -997,8 +997,20 @@ def preprocess():
 
     net = Model(config)
     print('#classifer parameters', sum([x.nelement() for x in net.parameters()]))
+
+    if config['restore']:
+        pre_epoch = -1
+        for pth in os.listdir(config['checkpoints_dir']):
+            pre_epoch = max(pre_epoch, int(pth[pth.find('Epoch')+5:pth.find('.pth')]))
+        if pre_epoch != -1:
+            net.load_state_dict(torch.load(os.path.join(config['checkpoints_dir'], 'Epoch' + str(pre_epoch) + '.pth')))
+            print('Model restored from epoch:', pre_epoch)
+            config['checkpoint'] = pre_epoch
+
+
     if args.load:
         net.load_state_dict(torch.load(args.load))
+        config['checkpoint'] = 0
         print('Model loaded from {}'.format(args.load))
     """
     i = 0
