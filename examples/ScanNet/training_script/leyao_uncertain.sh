@@ -29,7 +29,8 @@
    --use_dense_model \
    --use_elastic \
    --model_type uncertain \
-   --gpu 2
+   --gpu 0\
+   --restore
 #    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train
