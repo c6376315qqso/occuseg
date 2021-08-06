@@ -76,6 +76,7 @@ def get_args():
 
     parser.add_option('--gpu', default='0', type='int', help='use which gpu')
     parser.add_option('--mask_name', default='m25_50_75.pth', type='str')
+    parser.add_option('--uncertain_st_epoch', default=0, type='int', help='epoch to start uncertain loss')
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -89,7 +90,7 @@ def ArgsToConfig(args):
     config['simple_train'] = args.simple_train
     config['block_reps'] = args.block_reps
     config['batch_size'] = args.batch_size
-
+    config['uncertain_st_epoch'] = args.uncertain_st_epoch
     config['mask_name'] = args.mask_name
     config['gpu'] = args.gpu
     config['scale'] = args.scale

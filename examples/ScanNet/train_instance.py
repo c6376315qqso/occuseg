@@ -321,7 +321,7 @@ def calculate_cost_online_eval(predictions, embeddings, offsets, displacements, 
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou}
 
-def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain, epoch):
+def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain, epoch, config):
     tbl = batch['id']
     #lovasz_softmax(predictions, batch['y'][:,0], ignore = -100)
     SemanticLoss = criterion['nll'](predictions, batch['y'][:,0])
@@ -356,7 +356,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             index = (batch['x'][0][:,config['dimension']] == batch_id)
 
             if torch.sum(scene_mask) != scene_mask.shape[0]:
-                if epoch > 39:  
+                if epoch >= config['uncertain_st_epoch']:  
                     uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
                     uncertain_gt = uncertain_gt.detach()
                     uncertain_gt = uncertain_gt.view(-1,1).float()
@@ -816,7 +816,7 @@ def train_uncertain(net, config):
             batch['displacements'] =  batch['displacements'].cuda()
 
             torch.cuda.empty_cache()
-            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch)
+            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
             #classification loss
 
 
@@ -875,7 +875,7 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_drift_loss", drift_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
 
-        if epoch > 40:
+        if epoch >= config['uncertain_st_epoch']:
             uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
             try:
                 train_writer.add_scalar("train/epoch_avg_uncertain_accuracy", (uncertain_tp + uncertain_tn) / (uncertain_tp + uncertain_tn + uncertain_fp + uncertain_fn), global_step= (epoch + 1))
