@@ -6,7 +6,7 @@
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\
-   --batch_size 2\
+   --batch_size 6\
    --loss cross_entropy \
    --optim Adam \
    --lr 1e-3 \
@@ -29,7 +29,7 @@
    --use_dense_model \
    --use_elastic \
    --model_type uncertain \
-   --gpu 1\
+   --gpu 0\
    --mask_name m33_66.pth \
    --restore
 #    --simple_train

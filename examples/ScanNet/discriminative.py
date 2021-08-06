@@ -35,6 +35,12 @@ def DriftLoss(embedded, masks, pred_semantics, regressed_pose, offset, pose):
         loss = loss / mask_count
     return loss
 
+def WeightedBCELoss(output, target, weight):
+    output = torch.clamp(output,min=1e-8,max=1-1e-8)  
+    loss =  weight[1] * (target * torch.log(output)) + weight[0] * ((1 - target) * torch.log(1 - output))
+    loss = torch.neg(torch.mean(loss))
+    return loss
+
 
 # make the inputs distinguishable compared with previous methods
 def ClassificationLoss(embedded, bw, regressed_pose,pose,instance_mask,pred_semantics):
