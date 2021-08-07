@@ -2,7 +2,7 @@
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
    source activate p1
-   TASK_NAME=uncertain_m1_40-70_e40
+   TASK_NAME=uncertain_m1_40-70_e0
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\

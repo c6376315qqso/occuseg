@@ -28,7 +28,7 @@
    --use_feature c \
    --use_dense_model \
    --use_elastic \
-    --all_to_train \
+#    --all_to_train \
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train
 #   --checkpoint_file ckpts/lhanaf_dense_m32r1b4_instance_validation_l2/Epoch400.pth
