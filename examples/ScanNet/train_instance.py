@@ -19,7 +19,7 @@ from lovasz_losses import lovasz_hinge,lovasz_softmax
 from sklearn.cluster import MeanShift
 import scipy.stats as stats
 from model import *
-from discriminative import DiscriminativeLoss,ClassificationLoss,DriftLoss
+from discriminative import DiscriminativeLoss,ClassificationLoss,DriftLoss, WeightedBCELoss
 from torch_scatter import scatter_max,scatter_mean,scatter_std,scatter_sub,scatter_min,scatter_add,scatter_div
 #from knn_cuda import KNN
 import sparseconvnet as scn
@@ -321,7 +321,7 @@ def calculate_cost_online_eval(predictions, embeddings, offsets, displacements, 
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou}
 
-def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain, epoch):
+def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, criterion, batch, uncertain, epoch, config):
     tbl = batch['id']
     #lovasz_softmax(predictions, batch['y'][:,0], ignore = -100)
     SemanticLoss = criterion['nll'](predictions, batch['y'][:,0])
@@ -356,21 +356,22 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             index = (batch['x'][0][:,config['dimension']] == batch_id)
 
             if torch.sum(scene_mask) != scene_mask.shape[0]:
-                uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
-                uncertain_gt = uncertain_gt.detach()
-                uncertain_gt = uncertain_gt.view(-1,1).float()
-                uncertain_num += torch.sum(uncertain_gt).item()
-                tot_num += uncertain_gt.shape[0]
-                # print(torch.sum(uncertain_gt), uncertain_gt.shape)
-                uncertain_gt_byte = uncertain_gt.byte()
-                uncertain_pred_cls = (uncertain[index] > 0.5).detach()
-                uncertain_tp += torch.sum(uncertain_gt_byte * uncertain_pred_cls).item()
-                uncertain_tn += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==0)).item()
-                uncertain_fp += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==1)).item()
-                uncertain_fn += torch.sum((uncertain_gt_byte==1) & (uncertain_pred_cls==0)).item()
-                
-                uncertain_batch_num += 1
-                if epoch > 40:
+                if epoch >= config['uncertain_st_epoch']:  
+                    uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
+                    uncertain_gt = uncertain_gt.detach()
+                    uncertain_gt = uncertain_gt.view(-1,1).float()
+                    uncertain_num += torch.sum(uncertain_gt).item()
+                    tot_num += uncertain_gt.shape[0]
+                    # print(torch.sum(uncertain_gt), uncertain_gt.shape)
+                    uncertain_gt_byte = uncertain_gt.byte()
+                    uncertain_pred_cls = (uncertain[index] > 0.5).detach()
+                    uncertain_tp += torch.sum(uncertain_gt_byte * uncertain_pred_cls).item()
+                    uncertain_tn += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==0)).item()
+                    uncertain_fp += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==1)).item()
+                    uncertain_fn += torch.sum((uncertain_gt_byte==1) & (uncertain_pred_cls==0)).item()
+                    
+                    uncertain_batch_num += 1
+
                     UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
             
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
@@ -404,7 +405,6 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     # print(UncertainLoss)
     if uncertain_batch_num > 0:
         UncertainLoss /= uncertain_batch_num
-        UncertainLoss *= 1.5
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
@@ -521,7 +521,7 @@ def evaluate_online(net, config, global_iter):
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss()
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([8.0]).cuda())
 
     with torch.no_grad():
         net.eval()
@@ -774,7 +774,8 @@ def train_uncertain(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss()
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([8.0]).cuda())
+    criterion['weighted_bce'] = WeightedBCELoss
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -815,7 +816,7 @@ def train_uncertain(net, config):
             batch['displacements'] =  batch['displacements'].cuda()
 
             torch.cuda.empty_cache()
-            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch)
+            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
             #classification loss
 
 
@@ -862,7 +863,6 @@ def train_uncertain(net, config):
         pLabel = torch.cat(pLabel,0).numpy()
         tLabel = torch.cat(tLabel,0).numpy()
         
-        uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
         
         mIOU = iou_evaluate(pLabel, tLabel, train_writer ,epoch,class_num = config['class_num'] ,  topic = 'train')
         train_writer.add_scalar("train/epoch_avg_loss", train_loss / epoch_len, global_step= (epoch + 1))
@@ -874,11 +874,18 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_uncertain_loss", uncertain_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_drift_loss", drift_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_uncertain_accuracy", (uncertain_tp + uncertain_tn) / (uncertain_tp + uncertain_tn + uncertain_fp + uncertain_fn), global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_uncertain_precision", uncertain_tp / (uncertain_tp + uncertain_fp), global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_uncertain_recall", uncertain_tp / (uncertain_tp + uncertain_fn), global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_uncertain_iou", uncertain_iou, global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_uncertain_percent", uncertain_num / tot_num, global_step= (epoch + 1))
+
+        if epoch >= config['uncertain_st_epoch']:
+            uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
+            try:
+                train_writer.add_scalar("train/epoch_avg_uncertain_accuracy", (uncertain_tp + uncertain_tn) / (uncertain_tp + uncertain_tn + uncertain_fp + uncertain_fn), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_precision", uncertain_tp / (uncertain_tp + uncertain_fp), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_recall", uncertain_tp / (uncertain_tp + uncertain_fn), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_iou", uncertain_iou, global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_percent", uncertain_num / tot_num, global_step= (epoch + 1))
+            except ZeroDivisionError:
+                print('division by zero!')
+                print('uncertain_fp = %d\nuncertain_fn = %d\nuncertain_tp = %d\nuncertain_tn = %d\nuncertain_num = %d\ntot_num = %d' % (uncertain_fp, uncertain_fn, uncertain_tp, uncertain_tn, uncertain_num, tot_num))
 
         train_writer.add_scalar("train/time", time.time() - start, global_step=(epoch + 1))
         train_writer.add_scalar("train/lr", config['lr'], global_step=(epoch + 1))
@@ -1027,7 +1034,7 @@ def preprocess():
     # log the config to tensorboard
     tmp_config_str = ''
     for k, v in config.items():
-        if isinstance(v, str) or isinstance(v, int) or isinstance(v, float):
+        if isinstance(v, str) or isinstance(v, int) or isinstance(v, float) or isinstance(v, bool) or isinstance(v, int):
             train_writer.add_text('config', '{:<8}   :    {:>8}\n'.format(k, v), global_step=0)
         else:
             train_writer.add_text('config', '{:<8}   :    {:>8}\n'.format(k, json.dumps(v)), global_step=0)
