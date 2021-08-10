@@ -774,7 +774,7 @@ def train_uncertain(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([8.0]).cuda())
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     criterion['weighted_bce'] = WeightedBCELoss
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
