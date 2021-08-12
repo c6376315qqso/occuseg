@@ -102,7 +102,7 @@ def ArgsToConfig(args):
     config['full_scale'] = args.full_scale
 #    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 6 * args.m, 8 * args.m, 12 * args.m]
 #    config['unet_structure'] = [2 * args.m, 2.5 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m, 7 * args.m]
-
+    config['pretrain'] = args.pretrain
     config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m]
     config['kernel_size'] = args.kernel_size
     config['use_rotation_noise'] = args.use_rotation_noise

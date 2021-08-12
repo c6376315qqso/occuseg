@@ -1119,6 +1119,9 @@ def preprocess():
     elif config['model_type'] == 'uncertain':
         Model = UncertainDenseUNet
 
+    elif config['model_type'] == 'uncertain_freeze_unet':
+        Model = Uncertain_freeze_Pre_Model
+
     train_writer = SummaryWriter(comment=args.taskname)
 
     if os.path.exists(config['checkpoints_dir']) is False:

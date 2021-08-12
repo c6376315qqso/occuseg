@@ -824,6 +824,12 @@ class Uncertain_freeze_Pre_Model(nn.Module):
         self.load_state_dict(model_dict)
 
 
+    def forward(self, x):
+
+        semantics, feature, embedding, offset, displacement = self.backbone(x)
+        bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
+        uncertainty = self.linear_uncertain(self.fc_uncertain(feature))
+        return semantics, feature, embedding, offset, displacement, bw, uncertainty
 
 
 class ClusterSegNet(nn.Module):
