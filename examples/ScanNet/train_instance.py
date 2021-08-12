@@ -918,6 +918,184 @@ def train_uncertain(net, config):
         #                  prefix="epoch_{epoch}_".format(epoch=epoch))
 
 
+def train_uncertain_freeze_unet(net, config):
+    if config['optim'] == 'SGD':
+        optimizer = optim.SGD(filter(lambda x: x.requires_grad, net.parameters()), lr=config['lr'])
+    elif config['optim'] == 'Adam':
+        optimizer = optim.Adam(filter(lambda x: x.requires_grad, net.parameters()), lr=config['lr'])
+#        optimizer = optim.Adam([{'params': net.fc_bw.parameters()}, {'params':net.linear_bw.parameters()}], lr=config['lr'])
+
+
+
+    """
+    if config['loss'] == 'cross_entropy':
+        criterion = nn.functional.cross_entropy
+    elif config['loss'] == 'focal':
+        criterion = FocalLoss()
+    elif config['loss'] == 'weighted_cross_entropy':
+        if config['dataset'] == 'stanford3d':
+            weight = torch.from_numpy(np.hstack([0.1861, 0.1586,0.2663,0.0199,0.0039,0.0210,0.0210,0.0575,0.0332,0.0458,0.0052,0.0495 ,0.0123,0.1164,0.0032]))
+        elif config['dataset'] == 'scannet':
+            weight = torch.from_numpy(np.hstack([0.3005,0.2700,0.0418,0.0275,0.0810,0.0254,0.0462,0.0418,0.0297,0.0277,0.0061,0.0065,0.0194,0.0150,0.0060,0.0036,0.0029,0.0025,0.0029,0.0434]))
+        weight = weight.cuda().float()
+        criterion = WeightedCrossEntropyLoss(weight)
+    else:
+        raise NotImplementedError
+    """
+    criterion = {}
+    criterion['discriminative'] = DiscriminativeLoss(
+        DISCRIMINATIVE_DELTA_D,
+        DISCRIMINATIVE_DELTA_V
+    )
+    weight = None
+    criterion['nll'] = nn.functional.cross_entropy
+    criterion['regression'] = nn.L1Loss()
+    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
+    criterion['weighted_bce'] = WeightedBCELoss
+    for epoch in range(config['checkpoint'], config['max_epoch']):
+        net.train()
+        stats = {}
+        scn.forward_pass_multiplyAdd_count = 0
+        scn.forward_pass_hidden_states = 0
+        start = time.time()
+        train_loss = 0
+        semantic_loss = 0
+        regression_loss = 0
+        embedding_loss = 0
+        displacement_loss = 0
+        classification_loss = 0
+        instance_iou = 0
+        drift_loss = 0
+        uncertain_loss = 0
+        epoch_len = len(config['train_data_loader'])
+        cum_loss = 0
+        pLabel = []
+        tLabel = []
+        uncertain_fp = 0
+        uncertain_fn = 0
+        uncertain_tp = 0
+        uncertain_tn = 0
+        uncertain_num = 0
+        tot_num = 0
+        for i, batch in enumerate(tqdm((config['train_data_loader']))):
+            # checked
+            # logger.debug("CHECK RANDOM SEED(torch seed): sample id {}".format(batch['id']))
+            torch.cuda.empty_cache()
+            optimizer.zero_grad()
+            batch['x'][1] = batch['x'][1].cuda()
+            # print(batch['pth_file'])
+            logits, feature, embeddings, offset, displacements, bw, uncertain = net(batch['x'])
+
+            batch['y'] = batch['y'].cuda()
+            batch['region_masks'] =  batch['region_masks'].cuda()
+            batch['offsets'] =  batch['offsets'].cuda()
+            batch['displacements'] =  batch['displacements'].cuda()
+
+            torch.cuda.empty_cache()
+            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
+            #classification loss
+
+
+#            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['classification_loss'] + losses['occupancy_loss']
+
+            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['embedding_loss'] + losses['displacement_loss'] + losses['classification_loss'] + losses['uncertain_loss']
+            semantic_loss += losses['semantic_loss'].item()
+            regression_loss += losses['regression_loss'].item()
+            embedding_loss += losses['embedding_loss'].item()
+            displacement_loss += losses['displacement_loss'].item()
+            classification_loss += losses['classification_loss'].item()
+            uncertain_loss += losses['uncertain_loss'].item()
+            drift_loss += losses['drift_loss'].item()
+            instance_iou += losses['instance_iou'].item()
+#            print(losses['drift_loss'].item())
+            cum_loss += loss.item()
+            uncertain_tp += losses['uncertain_tp']
+            uncertain_tn += losses['uncertain_tn']
+            uncertain_fp += losses['uncertain_fp']
+            uncertain_fn += losses['uncertain_fn']
+            uncertain_num += losses['uncertain_num']
+            tot_num += losses['tot_num']
+
+            if i % 50 == 49:
+                print('loss: %.2f' % (cum_loss / (i + 1)))
+
+            # train_writer.add_scalar("train/loss", loss.item(), global_step=epoch_len * epoch + i)
+            predict_label = logits.cpu().max(1)[1].numpy()
+            true_label = batch['y'][:,0].detach().cpu()
+            pLabel.append(torch.from_numpy(predict_label))
+            tLabel.append(true_label)
+            train_loss += loss.item()
+
+#            memory_used = torch.cuda.memory_allocated(device=None) / torch.tensor(1024*1024*1024).float()
+#            print("before backward: ", memory_used)
+            loss.backward()
+            optimizer.step()
+            del loss,losses
+
+#            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
+#            print("after backward: ", memory_used)
+
+        #torch.cuda.empty_cache()
+        pLabel = torch.cat(pLabel,0).numpy()
+        tLabel = torch.cat(tLabel,0).numpy()
+        
+        
+        mIOU = iou_evaluate(pLabel, tLabel, train_writer ,epoch,class_num = config['class_num'] ,  topic = 'train')
+        train_writer.add_scalar("train/epoch_avg_loss", train_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_embedding_loss", embedding_loss/ epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_semantic_loss", semantic_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_displacement_loss", displacement_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_regression_loss", regression_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_classification_loss", classification_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_uncertain_loss", uncertain_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_drift_loss", drift_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
+
+        if epoch >= config['uncertain_st_epoch']:
+            uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
+            try:
+                train_writer.add_scalar("train/epoch_avg_uncertain_accuracy", (uncertain_tp + uncertain_tn) / (uncertain_tp + uncertain_tn + uncertain_fp + uncertain_fn), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_precision", uncertain_tp / (uncertain_tp + uncertain_fp), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_recall", uncertain_tp / (uncertain_tp + uncertain_fn), global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_iou", uncertain_iou, global_step= (epoch + 1))
+                train_writer.add_scalar("train/epoch_avg_uncertain_percent", uncertain_num / tot_num, global_step= (epoch + 1))
+            except ZeroDivisionError:
+                print('division by zero!')
+                print('uncertain_fp = %d\nuncertain_fn = %d\nuncertain_tp = %d\nuncertain_tn = %d\nuncertain_num = %d\ntot_num = %d' % (uncertain_fp, uncertain_fn, uncertain_tp, uncertain_tn, uncertain_num, tot_num))
+
+        train_writer.add_scalar("train/time", time.time() - start, global_step=(epoch + 1))
+        train_writer.add_scalar("train/lr", config['lr'], global_step=(epoch + 1))
+        print(epoch, 'Train loss', train_loss / (i + 1),'/  ',mIOU, 'MegaMulAdd=',
+                    scn.forward_pass_multiplyAdd_count / len(dataset.train) /
+                    1e6, 'MegaHidden', scn.forward_pass_hidden_states / len(dataset.train) / 1e6, 'time=',
+                    time.time() - start, 's')
+
+        # evaluate every config['snapshot'] epoch, and save model at the same time.
+        if ((epoch + 1) % config['snapshot'] == 0) or (epoch in [0,4]):
+            # net.eval()
+#            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
+#            print("before empty cache: ", memory_used)
+            torch.cuda.empty_cache()
+#            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
+#            print("after empty cache: ", memory_used)
+            evaluate_online(net=net, config=config, global_iter=(epoch + 1))
+            torch.save(net.state_dict(), config['checkpoints_dir'] + 'Epoch{}.pth'.format(epoch + 1))
+
+        if config['gamma'] != 0 and (epoch + 1) % config['step_size'] == 0:
+            config['lr'] = config['lr'] * config['gamma']
+            if config['optim'] == 'SGD':
+                optimizer = optim.SGD(filter(lambda x: x.requires_grad, net.parameters()), lr=config['lr'] * config['gamma'], momentum=0.9,
+                                      weight_decay=0.0005)
+            elif config['optim'] == 'Adam':
+                optimizer = optim.Adam(filter(lambda x: x.requires_grad, net.parameters()), lr=config['lr'], weight_decay=0.00005)
+#                optimizer = optim.Adam([{'params': net.fc_bw.parameters()}, {'params':net.linear_bw.parameters()}], lr=config['lr'], weight_decay=0.00005)
+        # if scn.is_power2(epoch) or (epoch % eval_epoch == 0 if eval_epoch else False) or epoch == training_epochs:
+        #         evaluate(unet,valOffsets,val_data_loader,valLabels,save_ply=(eval_save_ply and scn.is_power2(epoch)),
+        #                  prefix="epoch_{epoch}_".format(epoch=epoch))
+
+
+
+
 def preprocess():
     args = get_args()
     config = ArgsToConfig(args)
@@ -1030,6 +1208,15 @@ def preprocess():
                             config = config,
                             train_seq_path='./datasets/scannetTrainSeq'
                             )
+        elif config['model_type'] == 'uncertain_freeze_unet':
+            train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
+            dataset = ScanNetOnline(train_pth_path=train_pth_path,
+                            val_pth_path=val_pth_path,
+                            config = config,
+                            train_seq_path='./datasets/scannetTrainSeq'
+                            )
+            
+
 
     # log the config to tensorboard
     tmp_config_str = ''
@@ -1047,6 +1234,18 @@ def preprocess():
     net = Model(config)
     print('#classifer parameters', sum([x.nelement() for x in net.parameters()]))
 
+    if config['model_type'] == 'uncertain_freeze_unet':
+        assert(config['pretrain'] != 'none')
+        net.load_my_pretrain(config['pretrain'])
+        net.freeze()
+
+
+    if args.load:
+        net.load_state_dict(torch.load(args.load))
+        config['checkpoint'] = 0
+        print('Model loaded from {}'.format(args.load))
+
+
     if config['restore']:
         pre_epoch = -1
         for pth in os.listdir(config['checkpoints_dir']):
@@ -1057,10 +1256,7 @@ def preprocess():
             config['checkpoint'] = pre_epoch
 
 
-    if args.load:
-        net.load_state_dict(torch.load(args.load))
-        config['checkpoint'] = 0
-        print('Model loaded from {}'.format(args.load))
+
     """
     i = 0
     print("load model from: ", args.load)
@@ -1092,6 +1288,8 @@ if __name__ == '__main__':
             train_net(net=net, config=config)
         elif config['model_type'] == 'uncertain':
             train_uncertain(net, config)
+        elif config['model_type'] == 'uncertain_freeze_unet':
+            train_uncertain_freeze_unet(net, config)
 
     except KeyboardInterrupt:
         torch.save(net.state_dict(), 'INTERRUPTED.pth')
