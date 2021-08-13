@@ -10,6 +10,7 @@ def get_args():
     parser.add_option('--displacement_weight', dest='displacement_weight', default=100, type='float', help='distance to center variance')
     parser.add_option('--backbone_network', dest='backbone_network', default='LearnBWNet.pth', help='backbone network structure')
 
+    parser.add_option('--bceloss', default='weighted_bce', type='str', help='focal loss, weighted_bce')
     parser.add_option('--checkpoint_file', dest='load', default=False, help='load file model')
     parser.add_option('--checkpoint', dest='checkpoint', default=0, type='int', help='snapshot')
     parser.add_option('--dataset', dest='dataset', default='scannet', help='dataset type')
@@ -79,6 +80,7 @@ def get_args():
     parser.add_option('--uncertain_st_epoch', default=0, type='int', help='epoch to start uncertain loss')
     parser.add_option('--uncertain_weight', default=8.0, type='float', help='uncertian bce postive weight')
     parser.add_option('--pretrain', type='str', default='none', help='pretrain path')
+
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -112,6 +114,7 @@ def ArgsToConfig(args):
     config['snapshot'] = args.snapshot
     config['optim'] = args.optim
     config['loss'] = args.loss
+    config['bceloss'] = args.bceloss
     config['lr'] = args.lr
     config['gamma'] = args.gamma
     config['step_size'] = args.step_size

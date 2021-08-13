@@ -37,7 +37,7 @@ import math
 import json
 from tqdm import tqdm
 import os
-
+import bcelosses
 
 # only holds when the optimization is zero! a bad cost function, could be further optimized?
 # cannot explain well, how should we encourage the displacements to be correct?
@@ -521,7 +521,10 @@ def evaluate_online(net, config, global_iter):
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([8.0]).cuda())
+    if config['bceloss'] == 'weighed_bce':
+        criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
+    elif config['bceloss'] == 'focal_loss':
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
 
     with torch.no_grad():
         net.eval()
@@ -774,8 +777,10 @@ def train_uncertain(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
-    criterion['weighted_bce'] = WeightedBCELoss
+    if config['bceloss'] == 'weighed_bce':
+        criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
+    elif config['bceloss'] == 'focal_loss':
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -950,8 +955,12 @@ def train_uncertain_freeze_unet(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
-    criterion['weighted_bce'] = WeightedBCELoss
+    if config['bceloss'] == 'weighed_bce':
+        criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
+    elif config['bceloss'] == 'focal_loss':
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
+    else:
+        raise NotImplementedError
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -987,7 +996,7 @@ def train_uncertain_freeze_unet(net, config):
             logits, feature, embeddings, offset, displacements, bw, uncertain = net(batch['x'])
 
             batch['y'] = batch['y'].cuda()
-            batch['region_masks'] =  batch['region_masks'].cuda()
+            batch['region_masks'] = batch['region_masks'].cuda()
             batch['offsets'] =  batch['offsets'].cuda()
             batch['displacements'] =  batch['displacements'].cuda()
 
