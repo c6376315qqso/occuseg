@@ -524,7 +524,7 @@ def evaluate_online(net, config, global_iter):
     if config['bceloss'] == 'weighed_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
-        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
 
     with torch.no_grad():
         net.eval()
@@ -780,7 +780,7 @@ def train_uncertain(net, config):
     if config['bceloss'] == 'weighed_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
-        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -958,7 +958,7 @@ def train_uncertain_freeze_unet(net, config):
     if config['bceloss'] == 'weighed_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
-        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/10)
+        criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
     else:
         raise NotImplementedError
     for epoch in range(config['checkpoint'], config['max_epoch']):
