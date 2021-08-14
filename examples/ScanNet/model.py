@@ -779,7 +779,15 @@ class UncertainDenseUNet(nn.Module):
         self.fc_uncertain = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
         self.linear_uncertain = nn.Linear(self.backbone.output_feature_dim , 1)
         # self.sigmoid_uncertain = nn.Sigmoid()
-
+        
+    def load_my_pretrain(self, weight_path):
+        pretrained_dict = torch.load(weight_path)
+        model_dict = self.state_dict()
+        # 1. filter out unnecessary keys
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+        # 2. overwrite entries in the existing state dict
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)
 
     def forward(self, x):
 

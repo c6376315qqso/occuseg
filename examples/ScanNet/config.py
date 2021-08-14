@@ -50,7 +50,7 @@ def get_args():
     parser.add_option('--full_scale', default=4096, type='int')
     parser.add_option('--rotation_guide_level', default=0, type='int', help='Kernel Size')
 
-
+    parser.add_option('--uncertain_task_weight', type='float', default=10.0, help='uncertain task weight')   
     parser.add_option('--evaluate', default=False, action='store_true')
     parser.add_option('--test', default=False, action='store_true')
     parser.add_option('--use_dense_model', default=False, action='store_true')
@@ -102,6 +102,7 @@ def ArgsToConfig(args):
     config['val_reps'] = args.val_reps
     config['dimension'] = args.dimension
     config['full_scale'] = args.full_scale
+    config['uncertain_task_weight'] = args.uncertain_task_weight
 #    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 6 * args.m, 8 * args.m, 12 * args.m]
 #    config['unet_structure'] = [2 * args.m, 2.5 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m, 7 * args.m]
     config['pretrain'] = args.pretrain

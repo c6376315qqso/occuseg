@@ -355,24 +355,24 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             scene_mask = scene_masks[partial_id]
             index = (batch['x'][0][:,config['dimension']] == batch_id)
 
-            if torch.sum(scene_mask) != scene_mask.shape[0]:
-                if epoch >= config['uncertain_st_epoch']:  
-                    uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
-                    uncertain_gt = uncertain_gt.detach()
-                    uncertain_gt = uncertain_gt.view(-1,1).float()
-                    uncertain_num += torch.sum(uncertain_gt).item()
-                    tot_num += uncertain_gt.shape[0]
-                    # print(torch.sum(uncertain_gt), uncertain_gt.shape)
-                    uncertain_gt_byte = uncertain_gt.byte()
-                    uncertain_pred_cls = (uncertain[index] > 0.5).detach()
-                    uncertain_tp += torch.sum(uncertain_gt_byte * uncertain_pred_cls).item()
-                    uncertain_tn += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==0)).item()
-                    uncertain_fp += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==1)).item()
-                    uncertain_fn += torch.sum((uncertain_gt_byte==1) & (uncertain_pred_cls==0)).item()
-                    
-                    uncertain_batch_num += 1
+            # if torch.sum(scene_mask) != scene_mask.shape[0]:
+            if epoch >= config['uncertain_st_epoch']:  
+                uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
+                uncertain_gt = uncertain_gt.detach()
+                uncertain_gt = uncertain_gt.view(-1,1).float()
+                uncertain_num += torch.sum(uncertain_gt).item()
+                tot_num += uncertain_gt.shape[0]
+                # print(torch.sum(uncertain_gt), uncertain_gt.shape)
+                uncertain_gt_byte = uncertain_gt.byte()
+                uncertain_pred_cls = (uncertain[index] > 0.5).detach()
+                uncertain_tp += torch.sum(uncertain_gt_byte * uncertain_pred_cls).item()
+                uncertain_tn += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==0)).item()
+                uncertain_fp += torch.sum((uncertain_gt_byte==0) & (uncertain_pred_cls==1)).item()
+                uncertain_fn += torch.sum((uncertain_gt_byte==1) & (uncertain_pred_cls==0)).item()
+                
+                uncertain_batch_num += 1
 
-                    UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
+                UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
             
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
@@ -405,7 +405,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     # print(UncertainLoss)
     if uncertain_batch_num > 0:
         UncertainLoss /= uncertain_batch_num
-    UncertainLoss *= 10
+    UncertainLoss *= config['uncertain_task_weight']
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
@@ -522,7 +522,7 @@ def evaluate_online(net, config, global_iter):
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    if config['bceloss'] == 'weighed_bce':
+    if config['bceloss'] == 'weighted_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
@@ -778,7 +778,7 @@ def train_uncertain(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    if config['bceloss'] == 'weighed_bce':
+    if config['bceloss'] == 'weighted_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
@@ -956,7 +956,7 @@ def train_uncertain_freeze_unet(net, config):
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
-    if config['bceloss'] == 'weighed_bce':
+    if config['bceloss'] == 'weighted_bce':
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
@@ -1247,9 +1247,12 @@ def preprocess():
     net = Model(config)
     print('#classifer parameters', sum([x.nelement() for x in net.parameters()]))
 
+    if config['pretrain'] != 'none':
+        net.load_my_pretrain(config['pretrain'])
+        print('load pretrain from', config['pretrain'])
+
     if config['model_type'] == 'uncertain_freeze_unet':
         assert(config['pretrain'] != 'none')
-        net.load_my_pretrain(config['pretrain'])
         net.freeze()
 
 
