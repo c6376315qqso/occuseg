@@ -19,7 +19,7 @@ from lovasz_losses import lovasz_hinge,lovasz_softmax
 from sklearn.cluster import MeanShift
 import scipy.stats as stats
 from model import *
-from discriminative import DiscriminativeLoss,ClassificationLoss,DriftLoss, WeightedBCELoss
+from discriminative import DiscriminativeLoss,ClassificationLoss,DriftLoss
 from torch_scatter import scatter_max,scatter_mean,scatter_std,scatter_sub,scatter_min,scatter_add,scatter_div
 #from knn_cuda import KNN
 import sparseconvnet as scn
@@ -405,6 +405,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     # print(UncertainLoss)
     if uncertain_batch_num > 0:
         UncertainLoss /= uncertain_batch_num
+    UncertainLoss *= 10
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
