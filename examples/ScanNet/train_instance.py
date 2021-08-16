@@ -948,10 +948,7 @@ def preprocess():
         Model = LearningBWDenseUNet
     elif config['model_type'] == 'uncertain':
         Model = UncertainDenseUNet
-        if config['freeze_type'] == 'unet':
-            Model.freeze_unet()
-        elif config['freeze_type'] == 'unetex4':
-            Model.free_except_unet_4()
+
 
 
 
@@ -1074,9 +1071,12 @@ def preprocess():
         net.load_my_pretrain(config['pretrain'])
         print('load pretrain from', config['pretrain'])
 
-    if config['model_type'] == 'uncertain_freeze_unet':
+    if config['model_type'] == 'uncertain':
         assert(config['pretrain'] != 'none')
-        net.freeze()
+        if config['freeze_type'] == 'unet':
+            net.freeze_unet()
+        elif config['freeze_type'] == 'unetex4':
+            net.free_except_unet_4()
 
 
     if args.load:
