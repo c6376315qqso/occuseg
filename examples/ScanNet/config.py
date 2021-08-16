@@ -1,4 +1,6 @@
 from optparse import OptionParser
+
+from torch._C import default_generator
 def get_args():
     parser = OptionParser()
     parser.add_option('--batch_size', dest='batch_size', default=4, type='int', help='batch size')
@@ -80,7 +82,7 @@ def get_args():
     parser.add_option('--uncertain_st_epoch', default=0, type='int', help='epoch to start uncertain loss')
     parser.add_option('--uncertain_weight', default=8.0, type='float', help='uncertian bce postive weight')
     parser.add_option('--pretrain', type='str', default='none', help='pretrain path')
-
+    parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4')
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -132,6 +134,7 @@ def ArgsToConfig(args):
     config['displacement_weight'] = args.displacement_weight
 
     config['model_type'] = args.model_type
+    config['freeze_type'] = args.freeze_type
     # c: color, n: normal, d: depth define in tangentnet, h: height(z axis value)
     config['input_feature_number']=0
     if 'l' in config['use_feature']:

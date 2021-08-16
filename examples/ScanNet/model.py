@@ -1,3 +1,4 @@
+from re import T
 import sparseconvnet as scn
 
 import torch
@@ -779,7 +780,7 @@ class UncertainDenseUNet(nn.Module):
         self.fc_uncertain = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
         self.linear_uncertain = nn.Linear(self.backbone.output_feature_dim , 1)
         # self.sigmoid_uncertain = nn.Sigmoid()
-        
+
     def load_my_pretrain(self, weight_path):
         pretrained_dict = torch.load(weight_path)
         model_dict = self.state_dict()
@@ -789,47 +790,22 @@ class UncertainDenseUNet(nn.Module):
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
 
-    def forward(self, x):
-
-        semantics, feature, embedding, offset, displacement = self.backbone(x)
-        bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
-        uncertainty = self.linear_uncertain(self.fc_uncertain(feature))
-        return semantics, feature, embedding, offset, displacement, bw, uncertainty
-
-
-class Uncertain_freeze_Pre_Model(nn.Module):
-
-    def __init__(self, config):
-        nn.Module.__init__(self)
-
-        self.config = config
-        self.backbone = InstanceDenseUNet(config)
-#        if(os.path.exists(config['backbone_network'])):
-#            self.backbone.load_state_dict(torch.load(config['backbone_network']))
-
-
-        self.fc_bw = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
-        self.linear_bw = nn.Linear(self.backbone.output_feature_dim , 2)
-        self.relu_bw = nn.Softplus()
-
-        self.fc_uncertain = nn.Linear(self.backbone.output_feature_dim , self.backbone.output_feature_dim)
-        self.linear_uncertain = nn.Linear(self.backbone.output_feature_dim , 1)
-        # self.sigmoid_uncertain = nn.Sigmoid()
-
-
-    def freeze(self):
+    def free_except_unet_4(self):
         for para in self.backbone.parameters():
             para.requires_grad = False
-
-
-    def load_my_pretrain(self, weight_path):
-        pretrained_dict = torch.load(weight_path)
-        model_dict = self.state_dict()
-        # 1. filter out unnecessary keys
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-        # 2. overwrite entries in the existing state dict
-        model_dict.update(pretrained_dict)
-        self.load_state_dict(model_dict)
+        
+        for k, v in self.backbone.named_modules():
+            if 'backbone.unet.4' in k or 'backbone.unet.5' in k or 'backbone.bn' in k or 'backbone.linear' in k \
+            or 'backbone.fc_regress' in k or 'backbone.sigmoid_regress' in k or 'backbone.fc_embedding' in k \
+            or 'backbone.linear_embedding' in k or 'backbone.fc_displacement' in k or 'backbone.linear_displacement' in k:
+                for para in v.parameters():
+                    v.requires_grad = True
+        
+    def freeze_unet(self):
+        for k, v in self.backbone.named_modules():
+            if 'unet' in k:
+                for para in v.parameters():
+                    para.requires_grad = False            
 
 
     def forward(self, x):
@@ -838,6 +814,8 @@ class Uncertain_freeze_Pre_Model(nn.Module):
         bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
         uncertainty = self.linear_uncertain(self.fc_uncertain(feature))
         return semantics, feature, embedding, offset, displacement, bw, uncertainty
+
+
 
 
 class ClusterSegNet(nn.Module):
