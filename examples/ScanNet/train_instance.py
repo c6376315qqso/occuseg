@@ -15,7 +15,7 @@ import pdb
 import sys
 sys.path.insert(0, '../../../jsis3d/')
 
-from lovasz_losses import lovasz_hinge,lovasz_softmax
+from lovasz_losses import lovasz_hinge,lovasz_softmax,lovasz_hinge_flat
 from sklearn.cluster import MeanShift
 import scipy.stats as stats
 from model import *
@@ -526,7 +526,9 @@ def evaluate_online(net, config, global_iter):
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
-
+    elif config['bceloss'] == 'lovasz':
+        criterion['binnary_classification'] = lovasz_hinge_flat
+        
     with torch.no_grad():
         net.eval()
         store = torch.zeros(valOffsets[-1], config['class_num'])
@@ -782,6 +784,8 @@ def train_uncertain(net, config):
         criterion['binnary_classification'] = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([config['uncertain_weight']]).cuda())
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
+    elif config['bceloss'] == 'lovasz':
+        criterion['binnary_classification'] = lovasz_hinge_flat
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
@@ -807,6 +811,7 @@ def train_uncertain(net, config):
         uncertain_tn = 0
         uncertain_num = 0
         tot_num = 0
+        print('TASK NAME =', config['taskname'])
         for i, batch in enumerate(tqdm((config['train_data_loader']))):
             # checked
             # logger.debug("CHECK RANDOM SEED(torch seed): sample id {}".format(batch['id']))
@@ -1041,13 +1046,7 @@ def preprocess():
                             config = config,
                             train_seq_path='./datasets/scannetTrainSeq'
                             )
-        elif config['model_type'] == 'uncertain_freeze_unet':
-            train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
-            dataset = ScanNetOnline(train_pth_path=train_pth_path,
-                            val_pth_path=val_pth_path,
-                            config = config,
-                            train_seq_path='./datasets/scannetTrainSeq'
-                            )
+
             
 
 

@@ -790,7 +790,7 @@ class UncertainDenseUNet(nn.Module):
         model_dict.update(pretrained_dict)
         self.load_state_dict(model_dict)
 
-    def free_except_unet_4(self):
+    def freeze_except_unet_4(self):
         for para in self.backbone.parameters():
             para.requires_grad = False
         
