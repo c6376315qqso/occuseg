@@ -807,6 +807,9 @@ class UncertainDenseUNet(nn.Module):
                 for para in v.parameters():
                     para.requires_grad = False            
 
+    def freeze_backbone(self):
+        for para in self.backbone.parameters():
+            para.requires_grad = False
 
     def forward(self, x):
 

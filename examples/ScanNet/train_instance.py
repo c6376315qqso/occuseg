@@ -1076,8 +1076,9 @@ def preprocess():
         if config['freeze_type'] == 'unet':
             net.freeze_unet()
         elif config['freeze_type'] == 'unetex4':
-            net.free_except_unet_4()
-
+            net.freeze_except_unet_4()
+        elif config['freeze_type'] == 'backbone':
+            net.freeze_backbone()
 
     if args.load:
         net.load_state_dict(torch.load(args.load))

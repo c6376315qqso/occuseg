@@ -82,7 +82,7 @@ def get_args():
     parser.add_option('--uncertain_st_epoch', default=0, type='int', help='epoch to start uncertain loss')
     parser.add_option('--uncertain_weight', default=8.0, type='float', help='uncertian bce postive weight')
     parser.add_option('--pretrain', type='str', default='none', help='pretrain path')
-    parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4')
+    parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4  3.backbone')
     (options, args) = parser.parse_args()
     print(args)
     return options
