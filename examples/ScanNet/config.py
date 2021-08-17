@@ -12,7 +12,7 @@ def get_args():
     parser.add_option('--displacement_weight', dest='displacement_weight', default=100, type='float', help='distance to center variance')
     parser.add_option('--backbone_network', dest='backbone_network', default='LearnBWNet.pth', help='backbone network structure')
 
-    parser.add_option('--bceloss', default='weighted_bce', type='str', help='focal loss, weighted_bce')
+    parser.add_option('--bceloss', default='weighted_bce', type='str', help='focal loss, weighted_bce, lovasz')
     parser.add_option('--checkpoint_file', dest='load', default=False, help='load file model')
     parser.add_option('--checkpoint', dest='checkpoint', default=0, type='int', help='snapshot')
     parser.add_option('--dataset', dest='dataset', default='scannet', help='dataset type')
@@ -91,6 +91,7 @@ def get_args():
 def ArgsToConfig(args):
     config = {}
     config['m'] = args.m
+    config['taskname'] = args.taskname
     config['use_full_normal'] = args.use_full_normal
     config['residual_blocks'] = args.residual_blocks
     config['simple_train'] = args.simple_train
