@@ -527,7 +527,7 @@ def evaluate_online(net, config, global_iter):
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
     elif config['bceloss'] == 'lovasz':
-        criterion['binnary_classification'] = lovasz_hinge(per_image=False)
+        criterion['binnary_classification'] = lovasz_hinge
 
     with torch.no_grad():
         net.eval()
@@ -785,7 +785,7 @@ def train_uncertain(net, config):
     elif config['bceloss'] == 'focal_loss':
         criterion['binnary_classification'] = bcelosses.BCEFocalLoss(alpha=config['uncertain_weight']/(config['uncertain_weight'] + 1))
     elif config['bceloss'] == 'lovasz':
-        criterion['binnary_classification'] = lovasz_hinge(per_image=False)
+        criterion['binnary_classification'] = lovasz_hinge
     for epoch in range(config['checkpoint'], config['max_epoch']):
         net.train()
         stats = {}
