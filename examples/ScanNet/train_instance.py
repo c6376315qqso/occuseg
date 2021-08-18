@@ -825,10 +825,19 @@ def train_uncertain(net, config):
             batch['region_masks'] =  batch['region_masks'].cuda()
             batch['offsets'] =  batch['offsets'].cuda()
             batch['displacements'] =  batch['displacements'].cuda()
-
-            torch.cuda.empty_cache()
-            losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
+            try:
+                torch.cuda.empty_cache()
+                losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
             #classification loss
+
+            except RuntimeError as exception:
+                if "out of memory" in str(exception):
+                    print("WARNING: out of memory")
+                    if hasattr(torch.cuda, 'empty_cache'):
+                        torch.cuda.empty_cache()
+                    continue
+                else:
+                    raise exception
 
 
 #            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['classification_loss'] + losses['occupancy_loss']
