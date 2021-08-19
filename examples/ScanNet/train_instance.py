@@ -2,6 +2,7 @@
 
 
 
+from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
 from datasets import ScanNet
@@ -331,7 +332,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     loss_classification = torch.zeros(1,dtype=torch.float32).cuda()
     loss_drift = torch.zeros(1,dtype=torch.float32).cuda()
     instance_iou = torch.zeros(1,dtype=torch.float32).cuda()
-
+    loss_consistent = torch.zeros(1,dtype=torch.float32).cuda()
     uncertain_num = 0
     uncertain_tp = 0
     uncertain_fp = 0
@@ -349,8 +350,14 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         scene_masks = scene_masks_list[count]
         complete_batch_id = (count + 1) * batch['num_per_scene'] - 1
         complete_index = (batch['x'][0][:,config['dimension']] == complete_batch_id)
-        for partial_id in range(batch['num_per_scene']):
 
+        complete_index = (batch['x'][0][:,config['dimension']] == (count + 1) * batch['num_per_scene'] - 1)
+        instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
+        max_instances_id = instance_mask[0, :].max()
+        batch_mean_embeddings = torch.zeros([batch['num_per_scene'], max_instances_id + 1, embeddings.shape[-1]]).cuda()
+        torch.cuda.empty_cache()
+        for partial_id in range(batch['num_per_scene']):
+            
             batch_id = count * batch['num_per_scene'] + partial_id
             scene_mask = scene_masks[partial_id]
             index = (batch['x'][0][:,config['dimension']] == batch_id)
@@ -383,6 +390,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             cluster_size = 0
 
             displacement_cluster_error = scatter_mean(torch.norm(displacements[index,:]- displacements_gt[index,:], dim = 1), instance_mask.view(-1),dim = 0)
+            mean_embeddings = scatter_mean(embeddings[index,:], instance_mask.view(-1), dim=0)
 
             mask_size = instance_mask[0,:].max() + 1
             for mid in range(mask_size):
@@ -391,6 +399,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
                     continue
                 cls = pred_semantics[instance_indices][0]
                 if(cls > 1):
+                    batch_mean_embeddings[partial_id, mid] = mean_embeddings[mid]
                     displacement_error += displacement_cluster_error[mid]
                     cluster_size += 1
             if cluster_size > 0:
@@ -399,13 +408,32 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             loss_classification += loss_c
             instance_iou += i_iou
 
-    #        loss_drift += 50 * DriftLoss(embedding,mask.cuda(),pred_semantics,regressed_pose[index,:].view(1,-1,3),batch['offsets'][index,:], pose[index,:].view(1,-1,3))      #We want to align anchor points to mu as close as possible
             batchSize += 1
+    #        loss_drift += 50 * DriftLoss(embedding,mask.cuda(),pred_semantics,regressed_pose[index,:].view(1,-1,3),batch['offsets'][index,:], pose[index,:].view(1,-1,3))      #We want to align anchor points to mu as close as possible
+        loss_emb_consist = torch.zeros(1, dtype=torch.float32).cuda()
+        ins_count = 0
+        for partial_id in range(batch['num_per_scene']):
+            scene_mask = scene_masks[partial_id]
+            complete_id = batch['num_per_scene'] - 1
+            if torch.sum(scene_mask) != scene_mask.shape[0]: 
+                for i in range(max_instances_id + 1):
+                    if batch_mean_embeddings[partial_id][i][0] != 0:
+                        norm = torch.norm(batch_mean_embeddings[partial_id, i, :] - batch_mean_embeddings[complete_id, i, :], 2, dim=0)
+                        loss_emb_consist += torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+                        ins_count += 1
+        if ins_count > 0:
+            loss_emb_consist /= ins_count
+        loss_consistent += loss_emb_consist
+
+        
+                
+        
 
     # print(UncertainLoss)
     if uncertain_batch_num > 0:
         UncertainLoss /= uncertain_batch_num
     UncertainLoss *= config['uncertain_task_weight']
+    loss_consistent /= len(tbl)
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
@@ -420,7 +448,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'uncertain_loss': UncertainLoss, 'uncertain_num': uncertain_num,
-            'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num}
+            'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num, 'consistent_loss':loss_consistent}
 
 
 def evaluate(net, config, global_iter):
@@ -801,6 +829,7 @@ def train_uncertain(net, config):
         instance_iou = 0
         drift_loss = 0
         uncertain_loss = 0
+        consistent_loss = 0
         epoch_len = len(config['train_data_loader'])
         cum_loss = 0
         pLabel = []
@@ -842,7 +871,7 @@ def train_uncertain(net, config):
 
 #            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['classification_loss'] + losses['occupancy_loss']
 
-            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['embedding_loss'] + losses['displacement_loss'] + losses['classification_loss'] + losses['uncertain_loss']
+            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['embedding_loss'] + losses['displacement_loss'] + losses['classification_loss'] + losses['uncertain_loss'] + losses['consistent_loss']
             semantic_loss += losses['semantic_loss'].item()
             regression_loss += losses['regression_loss'].item()
             embedding_loss += losses['embedding_loss'].item()
@@ -851,6 +880,7 @@ def train_uncertain(net, config):
             uncertain_loss += losses['uncertain_loss'].item()
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
+            consistent_loss += losses['consistent_loss'].item()
 #            print(losses['drift_loss'].item())
             cum_loss += loss.item()
             uncertain_tp += losses['uncertain_tp']
@@ -892,7 +922,7 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_regression_loss", regression_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_classification_loss", classification_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_uncertain_loss", uncertain_loss / epoch_len, global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_drift_loss", drift_loss / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_consistent_loss", consistent_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
 
         if epoch >= config['uncertain_st_epoch']:
