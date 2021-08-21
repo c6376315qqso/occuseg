@@ -346,16 +346,18 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     pose = batch['x'][0][:,0:3].cuda() / config['scale']
     displacements_gt = batch['displacements'].cuda()
     scene_masks_list = batch['scene_masks_list']
+    consistency_batch_num = 0
     for count,idx in enumerate(tbl):
         scene_masks = scene_masks_list[count]
         complete_batch_id = (count + 1) * batch['num_per_scene'] - 1
         complete_index = (batch['x'][0][:,config['dimension']] == complete_batch_id)
 
-        complete_index = (batch['x'][0][:,config['dimension']] == (count + 1) * batch['num_per_scene'] - 1)
-        instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
-        max_instances_id = instance_mask[0, :].max()
-        batch_mean_embeddings = torch.zeros([batch['num_per_scene'], max_instances_id + 1, embeddings.shape[-1]]).cuda()
+        # instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
+        # max_instances_id = instance_mask[0, :].max()
+        # batch_mean_embeddings = torch.zeros([batch['num_per_scene'], max_instances_id + 1, embeddings.shape[-1]]).cuda()
         torch.cuda.empty_cache()
+
+        valid_points_num = 0
         for partial_id in range(batch['num_per_scene']):
             
             batch_id = count * batch['num_per_scene'] + partial_id
@@ -363,6 +365,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             index = (batch['x'][0][:,config['dimension']] == batch_id)
 
             # if torch.sum(scene_mask) != scene_mask.shape[0]:
+            ##################### uncertain loss
             if epoch >= config['uncertain_st_epoch']:  
                 uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
                 uncertain_gt = uncertain_gt.detach()
@@ -380,7 +383,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
                 uncertain_batch_num += 1
 
                 UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
-            
+            ####################
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
             pred_semantics = batch['y'][index,0]
@@ -393,13 +396,17 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             mean_embeddings = scatter_mean(embeddings[index,:], instance_mask.view(-1), dim=0)
 
             mask_size = instance_mask[0,:].max() + 1
+            instance_sizes = torch.zeros(mask_size).cuda()
+            instance_cls = torch.zeros(mask_size).cuda()
             for mid in range(mask_size):
                 instance_indices = (instance_mask[0,:]==mid)
-                if torch.sum(instance_indices) == 0:
+                instance_sizes[mid] = torch.sum(instance_indices)
+                if instance_sizes[mid] == 0:
                     continue
                 cls = pred_semantics[instance_indices][0]
+                instance_cls[mid] = cls
                 if(cls > 1):
-                    batch_mean_embeddings[partial_id, mid] = mean_embeddings[mid]
+                    # batch_mean_embeddings[partial_id, mid] = mean_embeddings[mid]
                     displacement_error += displacement_cluster_error[mid]
                     cluster_size += 1
             if cluster_size > 0:
@@ -409,21 +416,35 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             instance_iou += i_iou
 
             batchSize += 1
-    #        loss_drift += 50 * DriftLoss(embedding,mask.cuda(),pred_semantics,regressed_pose[index,:].view(1,-1,3),batch['offsets'][index,:], pose[index,:].view(1,-1,3))      #We want to align anchor points to mu as close as possible
-        loss_emb_consist = torch.zeros(1, dtype=torch.float32).cuda()
-        ins_count = 0
-        for partial_id in range(batch['num_per_scene']):
-            scene_mask = scene_masks[partial_id]
-            complete_id = batch['num_per_scene'] - 1
-            if torch.sum(scene_mask) != scene_mask.shape[0]: 
-                for i in range(max_instances_id + 1):
-                    if batch_mean_embeddings[partial_id][i][0] != 0:
-                        norm = torch.norm(batch_mean_embeddings[partial_id, i, :] - batch_mean_embeddings[complete_id, i, :], 2, dim=0)
-                        loss_emb_consist += torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
-                        ins_count += 1
-        if ins_count > 0:
-            loss_emb_consist /= ins_count
-        loss_consistent += loss_emb_consist
+            ############ per point consistency loss
+            if torch.sum(scene_mask) != scene_mask.shape[0]:
+                filter = torch.index_select(instance_sizes, 0, instance_mask.view(-1)) > 30
+                filter = filter & (torch.index_select(instance_cls, 0, instance_mask.view(-1)) > 1)
+                if (torch.sum(filter) == 0):
+                    continue
+                emb_complete = embeddings[complete_index][scene_mask][filter]
+                emb_partial = embeddings[index][filter]
+                var = torch.norm(emb_partial - emb_complete, 2, dim=1)
+                var = torch.clamp(var - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+                consistency_batch_num += 1
+                loss_consistent += torch.mean(var)
+            ############
+            
+        ############## per instance consistency loss
+        # loss_emb_consist = torch.zeros(1, dtype=torch.float32).cuda()
+        # ins_count = 0
+        # for partial_id in range(batch['num_per_scene']):
+        #     scene_mask = scene_masks[partial_id]
+        #     complete_id = batch['num_per_scene'] - 1
+        #     if torch.sum(scene_mask) != scene_mask.shape[0]: 
+        #         for i in range(max_instances_id + 1):
+        #             if batch_mean_embeddings[partial_id][i][0] != 0:
+        #                 norm = torch.norm(batch_mean_embeddings[partial_id, i, :] - batch_mean_embeddings[complete_id, i, :], 2, dim=0)
+        #                 loss_emb_consist += torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+        #                 ins_count += 1
+        # if ins_count > 0:
+        #     loss_emb_consist /= ins_count
+        # loss_consistent += loss_emb_consist
 
         
                 
@@ -433,7 +454,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     if uncertain_batch_num > 0:
         UncertainLoss /= uncertain_batch_num
     UncertainLoss *= config['uncertain_task_weight']
-    loss_consistent /= len(tbl)
+    loss_consistent /= consistency_batch_num
+    loss_consistent *= 15
     EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
@@ -877,9 +899,19 @@ def train_uncertain(net, config):
             embedding_loss += losses['embedding_loss'].item()
             displacement_loss += losses['displacement_loss'].item()
             classification_loss += losses['classification_loss'].item()
+            
+            if losses['uncertain_loss'] > 10:
+                print('Uncertain Loss out of bound')
+                losses['uncertain_loss'] = torch.clamp(losses['uncertain_loss'], max=10.0)
             uncertain_loss += losses['uncertain_loss'].item()
+            
+
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
+            if losses['consistent_loss'] > 10:
+                print('Consistency loss out of bound')
+                losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
+                
             consistent_loss += losses['consistent_loss'].item()
 #            print(losses['drift_loss'].item())
             cum_loss += loss.item()
@@ -1110,7 +1142,7 @@ def preprocess():
         print('load pretrain from', config['pretrain'])
 
     if config['model_type'] == 'uncertain':
-        assert(config['pretrain'] != 'none')
+       # assert(config['pretrain'] != 'none')
         if config['freeze_type'] == 'unet':
             net.freeze_unet()
         elif config['freeze_type'] == 'unetex4':

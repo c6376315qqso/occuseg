@@ -2,6 +2,7 @@
 build
 __pycache__
 *.pyc
+*.pth
 sparseconvnet.egg-info
 .vscode
 .idea
