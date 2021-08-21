@@ -1,4 +1,4 @@
-name: p1
+name: iscn
 channels:
   - pytorch
   - conda-forge

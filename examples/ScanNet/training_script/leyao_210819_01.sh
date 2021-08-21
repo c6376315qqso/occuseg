@@ -31,7 +31,6 @@
    --model_type uncertain \
    --gpu 2\
    --mask_name m33_66.pth \
-   --restore \
    --bceloss weighted_bce \
    --pretrain ./ckpts/test_train/Epoch260.pth\
    --uncertain_task_weight 0.5 \
