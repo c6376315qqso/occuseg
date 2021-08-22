@@ -4,6 +4,9 @@ import pdb
 import math
 from torch_scatter import scatter_max,scatter_mean,scatter_std,scatter_sub,scatter_min,scatter_add,scatter_div
 
+DISCRIMINATIVE_DELTA_V = 0.2
+DISCRIMINATIVE_DELTA_D = 1.5
+
 def DriftLoss(embedded, masks, pred_semantics, regressed_pose, offset, pose):
     batch_size = embedded.size(0)
     loss = torch.zeros(1,dtype=torch.float32).cuda()
@@ -230,3 +233,29 @@ class DiscriminativeLoss(nn.Module):
             loss += torch.mean(norm)
         loss /= batch_size
         return loss
+
+
+
+
+def ConsistencyLoss(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene):
+    consistent_num = 0
+    complete_id = num_per_scene - 1
+    comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
+    loss = torch.zeros(1).cuda()
+    points_num = 0
+    for partial_id in range(num_per_scene - 1):
+        index = indexs[partial_id]
+        embedding = embeddings[index]
+        instance_mask = instance_masks[index]
+        for instance_id in range(max_instance_id):
+            mask = instance_mask == instance_id
+            if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
+                norm = torch.norm(embedding[mask], comp_mean_embeddings[instance_id], 2, dim=1)
+                var = torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+                loss += var.sum()
+                consistent_num += torch.sum(norm < 0.4).item()
+                points_num += norm.shape[0]
+    if points_num > 0:
+        loss /= points_num
+    return loss, consistent_num/points_num
+    

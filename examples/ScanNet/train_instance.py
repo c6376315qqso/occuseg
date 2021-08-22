@@ -2,6 +2,7 @@
 
 
 
+from examples.ScanNet.discriminative import ConsistencyLoss
 from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
@@ -339,6 +340,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     uncertain_tn = 0
     uncertain_fn = 0
     tot_num = 0
+    consistency_percent = 0
     uncertain_batch_num = 0
     batchSize = 0
     forground_indices = batch['y'][:,0] > 1
@@ -346,28 +348,26 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     pose = batch['x'][0][:,0:3].cuda() / config['scale']
     displacements_gt = batch['displacements'].cuda()
     scene_masks_list = batch['scene_masks_list']
-    consistency_batch_num = 0
+
     for count,idx in enumerate(tbl):
         scene_masks = scene_masks_list[count]
         complete_batch_id = (count + 1) * batch['num_per_scene'] - 1
         complete_index = (batch['x'][0][:,config['dimension']] == complete_batch_id)
 
-        # instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
-        # max_instances_id = instance_mask[0, :].max()
-        # batch_mean_embeddings = torch.zeros([batch['num_per_scene'], max_instances_id + 1, embeddings.shape[-1]]).cuda()
-        # instance_sizes = torch.zeros([batch['num_per_scene'], max_instances_id + 1]).cuda()
-        # instance_cls = torch.zeros(max_instances_id + 1).cuda()
+        instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
+        max_instances_id = instance_mask[0, :].max()
+        instance_sizes = torch.zeros([batch['num_per_scene'], max_instances_id + 1]).cuda()
+        instance_cls = torch.zeros(max_instances_id + 1).cuda()
         torch.cuda.empty_cache()
 
-        embedding_scene = []
-        instance_mask_scene = []
-        valid_points_num = 0
+
+        indexs = []
         for partial_id in range(batch['num_per_scene']):
             
             batch_id = count * batch['num_per_scene'] + partial_id
             scene_mask = scene_masks[partial_id]
             index = (batch['x'][0][:,config['dimension']] == batch_id)
-
+            indexs += [index]
             # if torch.sum(scene_mask) != scene_mask.shape[0]:
             ##################### uncertain loss
             if epoch >= config['uncertain_st_epoch']:  
@@ -389,32 +389,23 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             ####################
             embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
             instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
-
-            embedding_scene += [embedding]
-            instance_mask_scene += [instance_mask]
-
-
             pred_semantics = batch['y'][index,0]
-            
+            EmbeddingLoss += criterion['discriminative'](embedding, instance_mask)
 
             displacement_error = torch.zeros(1,dtype=torch.float32).cuda()
             cluster_size = 0
 
             displacement_cluster_error = scatter_mean(torch.norm(displacements[index,:]- displacements_gt[index,:], dim = 1), instance_mask.view(-1),dim = 0)
-            mean_embeddings = scatter_mean(embeddings[index,:], instance_mask.view(-1), dim=0)
 
             mask_size = instance_mask[0,:].max() + 1
-            # instance_sizes = torch.zeros(mask_size).cuda()
-            # instance_cls = torch.zeros(mask_size).cuda()
             for mid in range(mask_size):
                 instance_indices = (instance_mask[0,:]==mid)
-                # instance_sizes[partial_id, mid] = torch.sum(instance_indices)
-                if torch.sum(instance_indices) == 0:
+                instance_sizes[partial_id, mid] = torch.sum(instance_indices)
+                if instance_sizes[partial_id, mid] == 0:
                     continue
                 cls = pred_semantics[instance_indices][0]
-                # instance_cls[mid] = cls
+                instance_cls[mid] = cls
                 if(cls > 1):
-                    # batch_mean_embeddings[partial_id, mid] = mean_embeddings[mid]
                     displacement_error += displacement_cluster_error[mid]
                     cluster_size += 1
             if cluster_size > 0:
@@ -425,11 +416,11 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
             batchSize += 1
 
+        loss_consis, consis_percent = ConsistencyLoss(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'])
+        loss_consistent += loss_consis
+        consistency_percent += consis_percent
 
-        instance_mask_scene = torch.cat(instance_mask_scene, dim=1)
-        embedding_scene = torch.cat(embedding_scene, dim=1)
-        EmbeddingLoss += criterion['discriminative'](embedding_scene, instance_mask_scene)
-
+    
             # ############ per point consistency loss
             # if torch.sum(scene_mask) != scene_mask.shape[0]:
             #     filter = torch.index_select(instance_sizes, 0, instance_mask.view(-1)) > 30
@@ -471,12 +462,16 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     UncertainLoss *= config['uncertain_task_weight']
     loss_consistent /= len(tbl)
     # loss_consistent *= 3
-    EmbeddingLoss /= len(tbl)
+    consistency_percent /= len(tbl)
+    
+    EmbeddingLoss /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
     loss_drift /= batchSize
     instance_iou /= batchSize
-    #print('previous occupancy loss: ', PreOccupancyLoss.item(),OccupancyLoss.item(),'    ', PreDisplacementLoss.item(),DisplacementLoss.item())
+
+    
+    
     if torch.sum(forground_indices) != 0:
         RegressionLoss = criterion['regression'](offsets[forground_indices], batch['offsets'].cuda()[forground_indices]) * config['regress_weight']
     else:
@@ -485,7 +480,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'uncertain_loss': UncertainLoss, 'uncertain_num': uncertain_num,
-            'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num, 'consistent_loss':loss_consistent}
+            'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num, 'consistent_loss':loss_consistent,
+            'consistency_percent': consistency_percent}
 
 
 def evaluate(net, config, global_iter):
@@ -915,9 +911,9 @@ def train_uncertain(net, config):
             displacement_loss += losses['displacement_loss'].item()
             classification_loss += losses['classification_loss'].item()
             
-            if losses['uncertain_loss'] > 10:
+            if losses['uncertain_loss'] > 3:
                 print('Uncertain Loss out of bound')
-                losses['uncertain_loss'] = torch.clamp(losses['uncertain_loss'], max=10.0)
+                losses['uncertain_loss'] = torch.clamp(losses['uncertain_loss'], max=3.0)
             uncertain_loss += losses['uncertain_loss'].item()
             
 
