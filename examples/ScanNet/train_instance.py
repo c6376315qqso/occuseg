@@ -2,7 +2,7 @@
 
 
 
-from examples.ScanNet.discriminative import ConsistencyLoss
+from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i
 from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
@@ -416,7 +416,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
             batchSize += 1
 
-        loss_consis, consis_percent = ConsistencyLoss(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'])
+        loss_consis, consis_percent = ConsistencyLoss_p2i(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'])
         loss_consistent += loss_consis
         consistency_percent += consis_percent
 
@@ -461,7 +461,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         UncertainLoss /= uncertain_batch_num
     UncertainLoss *= config['uncertain_task_weight']
     loss_consistent /= len(tbl)
-    # loss_consistent *= 3
+    loss_consistent *= 20
     consistency_percent /= len(tbl)
     
     EmbeddingLoss /= batchSize
@@ -873,6 +873,7 @@ def train_uncertain(net, config):
         uncertain_tn = 0
         uncertain_num = 0
         tot_num = 0
+        consistency_percent = 0
         print('TASK NAME =', config['taskname'])
         for i, batch in enumerate(tqdm((config['train_data_loader']))):
             # checked
@@ -912,7 +913,7 @@ def train_uncertain(net, config):
             classification_loss += losses['classification_loss'].item()
             
             if losses['uncertain_loss'] > 3:
-                print('Uncertain Loss out of bound')
+                print('Uncertain Loss out of bound:', losses['uncertain_loss'])
                 losses['uncertain_loss'] = torch.clamp(losses['uncertain_loss'], max=3.0)
             uncertain_loss += losses['uncertain_loss'].item()
             
@@ -920,7 +921,7 @@ def train_uncertain(net, config):
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
             if losses['consistent_loss'] > 10:
-                print('Consistency loss out of bound')
+                print('Consistency loss out of bound:', losses['consistent_loss'])
                 losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
                 
             consistent_loss += losses['consistent_loss'].item()
@@ -932,6 +933,8 @@ def train_uncertain(net, config):
             uncertain_fn += losses['uncertain_fn']
             uncertain_num += losses['uncertain_num']
             tot_num += losses['tot_num']
+            
+            consistency_percent += losses['consistency_percent']
 
             if i % 50 == 49:
                 print('loss: %.2f' % (cum_loss / (i + 1)))
@@ -967,6 +970,7 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_uncertain_loss", uncertain_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_consistent_loss", consistent_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_consistency_percent", consistency_percent / epoch_len, global_step= (epoch + 1))
 
         if epoch >= config['uncertain_st_epoch']:
             uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
