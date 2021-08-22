@@ -2,7 +2,7 @@
 
 
 
-from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i
+from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i, Consistency_Evaler
 from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
@@ -905,6 +905,15 @@ def train_uncertain(net, config):
 
 #            loss = losses['semantic_loss'] + losses['regression_loss'] + losses['classification_loss'] + losses['occupancy_loss']
 
+            if losses['consistent_loss'] > 10:
+                print('Consistency loss out of bound:', losses['consistent_loss'])
+                losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
+
+            if losses['uncertain_loss'] > 3:
+                print('Uncertain Loss out of bound:', losses['uncertain_loss'])
+                losses['uncertain_loss'] *= 0.2
+
+
             loss = losses['semantic_loss'] + losses['regression_loss'] + losses['embedding_loss'] + losses['displacement_loss'] + losses['classification_loss'] + losses['uncertain_loss'] + losses['consistent_loss']
             semantic_loss += losses['semantic_loss'].item()
             regression_loss += losses['regression_loss'].item()
@@ -912,17 +921,13 @@ def train_uncertain(net, config):
             displacement_loss += losses['displacement_loss'].item()
             classification_loss += losses['classification_loss'].item()
             
-            if losses['uncertain_loss'] > 3:
-                print('Uncertain Loss out of bound:', losses['uncertain_loss'])
-                losses['uncertain_loss'] = torch.clamp(losses['uncertain_loss'], max=3.0)
+
             uncertain_loss += losses['uncertain_loss'].item()
             
 
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
-            if losses['consistent_loss'] > 10:
-                print('Consistency loss out of bound:', losses['consistent_loss'])
-                losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
+
                 
             consistent_loss += losses['consistent_loss'].item()
 #            print(losses['drift_loss'].item())
