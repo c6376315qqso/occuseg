@@ -79,6 +79,7 @@ def ClassificationLoss(embedded, bw, regressed_pose,pose,instance_mask,pred_sema
                 end += 1
                 sigma2 = instance_mean_volume[mid,start:end]  # mean covariance 1
 
+                ######## choose 4 * max instance radius to test precision in order to reduce computation burden.
                 spatial_distance = (pose - mean_pose.expand_as(pose)).norm(dim=2).view(-1)
                 dist_threshold = torch.max(spatial_distance[instance_indices]) * 4
                 samples = spatial_distance < dist_threshold
@@ -133,7 +134,7 @@ class DiscriminativeLoss(nn.Module):
         self.delta_d = delta_d
         self.delta_v = delta_v
 
-    def forward(self, embedded,instance_mask):
+    def forward(self, embedded, instance_mask):
         centroids = self._new_centroids(embedded, instance_mask)
         L_v = self._new_variance(embedded, instance_mask, centroids)
         # instance num
@@ -141,7 +142,7 @@ class DiscriminativeLoss(nn.Module):
         L_d = self._distance(centroids, size)
         L_r = self._regularization(centroids, size)
         loss = self.alpha * L_v + self.beta * L_d + self.gamma * L_r
-        return loss
+        return loss, L_v, L_d, L_r
 
 
 
@@ -264,6 +265,10 @@ def ConsistencyLoss_p2i(embeddings, indexs, instance_masks, max_instance_id, ins
     return loss, consistent_num
     
 
+
+
+
+
 def ConsistencyLoss_i2i(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene):
     consistent_num = 0
     complete_id = num_per_scene - 1
@@ -296,9 +301,39 @@ def ConsistencyLoss_i2i(embeddings, indexs, instance_masks, max_instance_id, ins
     return loss, consistent_num
 
 
+def ConsistencyLoss_p2p(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene, scene_masks):
+    consistent_num = 0
+    complete_id = num_per_scene - 1
+    complete_embedding = embeddings[indexs[complete_id]]
+    comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
+    loss = torch.zeros(1).cuda()
+    points_num = 0
+    complete_num = torch.sum(indexs[complete_id])
+    for partial_id in range(num_per_scene - 1):
+        index = indexs[partial_id]
+        if (torch.sum(index) == complete_num):
+            continue
+        scene_mask = scene_masks[partial_id]
+        embedding = embeddings[index]
+        instance_mask = instance_masks[index]
+        for instance_id in range(max_instance_id):
+            mask = instance_mask == instance_id
+            if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
+                norm = torch.norm(embedding[mask] - complete_embedding[scene_mask][mask], 2, dim=1)
+                var = torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+                loss += var.sum()
+                points_norm = torch.norm(embedding[mask] - comp_mean_embeddings[instance_id], 2, dim=1).detach()
+                consistent_num += torch.sum(points_norm < DISCRIMINATIVE_DELTA_V).item()
+                points_num += norm.shape[0]
+    if points_num > 0:
+        loss /= points_num
+        consistent_num /= points_num
+    return loss, consistent_num
+
+
 
 def Consistency_Evaler(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene):
-    consistent_num = 0
+    consistent_num = 0.0
     complete_id = num_per_scene - 1
     comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
     points_num = 0
@@ -318,3 +353,39 @@ def Consistency_Evaler(embeddings, indexs, instance_masks, max_instance_id, inst
     if points_num > 0:
         consistent_num /= points_num
     return consistent_num
+
+
+def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene, poses):
+    with torch.no_grad():
+        instance_cnt = 0
+        mprec = 0
+        for partial_id in range(num_per_scene):
+            index = indexs[partial_id]
+            instance_mask = instance_masks[index]
+            pose = poses[index]
+            embedding = embeddings[index]
+            mean_pose = scatter_mean(pose, instance_mask, dim=0)
+            mean_embedding = scatter_mean(embedding, instance_mask, dim=0)
+
+            for i in range(max_instance_id):
+                if instance_sizes[partial_id, i] <= 30 or instance_cls[i] <= 1:
+                    continue
+                instance_indices = instance_mask == i
+                ######## choose 4 * max instance radius to test precision in order to reduce computation burden.
+                spatial_distance = (pose - mean_pose[i]).norm(dim=1)
+                dist_threshold = torch.max(spatial_distance[instance_indices]) * 4
+                samples = spatial_distance < dist_threshold
+                samples_gt = instance_indices[samples]
+                samples_embedding = embedding[samples,:]
+                
+                samples_norm = torch.norm(samples_embedding - mean_embedding[i], 2, dim=1)
+                u = samples_norm < DISCRIMINATIVE_DELTA_V 
+                v = samples_gt
+                tp = (u * v).sum(0).item()
+                fp = (u * (~v)).sum(0).item()
+                total = (v.sum(0)).item()
+                mprec += tp / (total + fp)
+                instance_cnt += 1
+    if instance_cnt > 0:
+        mprec /= instance_cnt
+    return mprec

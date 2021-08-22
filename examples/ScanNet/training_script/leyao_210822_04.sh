@@ -2,11 +2,11 @@
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
    source activate p1
-   TASK_NAME=leyao_210820_01
+   TASK_NAME=leyao_210822_04
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\
-   --batch_size 4\
+   --batch_size 6\
    --loss cross_entropy \
    --optim Adam \
    --lr 1e-3 \
@@ -32,6 +32,7 @@
    --gpu 0\
    --mask_name m33_66.pth \
    --bceloss weighted_bce \
+   --pretrain ./ckpts/test_train/Epoch260.pth\
    --uncertain_task_weight 0.5 \
    --uncertain_weight 15.0\
    --restore
