@@ -438,7 +438,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         UncertainLoss /= uncertain_batch_num
     UncertainLoss *= config['uncertain_task_weight']
     loss_consistent /= len(tbl)
-    #loss_consistent *= 20
+    loss_consistent *= config['consistency_weight']
     consistency_percent /= len(tbl)
     emb_instance_precision /= len(tbl)
     
@@ -891,7 +891,7 @@ def train_uncertain(net, config):
 
             if losses['consistent_loss'] > 10:
                 print('Consistency loss out of bound:', losses['consistent_loss'])
-                losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
+                #losses['consistent_loss'] = torch.clamp(losses['consistent_loss'], max=10.0)
 
             if losses['uncertain_loss'] > 3:
                 print('Uncertain Loss out of bound:', losses['uncertain_loss'])
@@ -964,7 +964,7 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_consistent_loss", consistent_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_consistency_percent", consistency_percent / epoch_len, global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_instance_precision", emb_instance_precision / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_emb_instance_precision", emb_instance_precision / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_var", loss_var / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_dis", loss_dis / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_reg", loss_reg / epoch_len, global_step= (epoch + 1))

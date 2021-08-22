@@ -2,7 +2,7 @@
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
    source activate p1
-   TASK_NAME=leyao_210822_01
+   TASK_NAME=leyao_210822_05
    python -u train_instance.py  \
    --taskname $TASK_NAME \
    --dataset scannet\
@@ -29,13 +29,13 @@
    --use_dense_model \
    --use_elastic \
    --model_type uncertain \
-   --gpu 1\
+   --gpu 0\
    --mask_name m33_66.pth \
    --bceloss weighted_bce \
    --pretrain ./ckpts/test_train/Epoch260.pth\
    --uncertain_task_weight 0.5 \
-   --uncertain_weight 15.0 \
-   --consistency_weight 20.0
+   --uncertain_weight 15.0\
+   --consistency_weight 10.0
 #    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train

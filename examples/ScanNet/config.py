@@ -26,7 +26,7 @@ def get_args():
     # tensorboardX visualization
     # parser.add_option('--tensorboard_log_dir', type='str', default='./log')
     parser.add_option('--taskname', type='str', default='default_name')
-
+    parser.add_option('--consistency_weight', type=float, default=1.0)
     # Sparse Conv Hyper-parameters
     # m = 16  # 16 or 32
     # residual_blocks = False  # True or False
@@ -91,6 +91,7 @@ def get_args():
 def ArgsToConfig(args):
     config = {}
     config['m'] = args.m
+    config['consistency_weight'] = args.consistency_weight
     config['taskname'] = args.taskname
     config['use_full_normal'] = args.use_full_normal
     config['residual_blocks'] = args.residual_blocks
