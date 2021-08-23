@@ -473,7 +473,9 @@ def evaluate(net, config, global_iter):
     criterion = {}
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
-        DISCRIMINATIVE_DELTA_V
+        DISCRIMINATIVE_DELTA_V,
+        config['alpha'],
+        config['beta']
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
@@ -816,7 +818,9 @@ def train_uncertain(net, config):
     criterion = {}
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
-        DISCRIMINATIVE_DELTA_V
+        DISCRIMINATIVE_DELTA_V,
+        alpha=1,
+        beta=2
     )
     weight = None
     criterion['nll'] = nn.functional.cross_entropy

@@ -83,6 +83,8 @@ def get_args():
     parser.add_option('--uncertain_weight', default=8.0, type='float', help='uncertian bce postive weight')
     parser.add_option('--pretrain', type='str', default='none', help='pretrain path')
     parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4  3.backbone')
+    parser.add_option('--alpha', type=float, default=1.0, help='discriminative loss var weight')
+    parser.add_option('--beta', type=float, default=1.0, help='discriminative loss dis weight')
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -92,6 +94,8 @@ def ArgsToConfig(args):
     config = {}
     config['m'] = args.m
     config['consistency_weight'] = args.consistency_weight
+    config['alpha'] = args.alpha
+    config['beta'] = args.beta
     config['taskname'] = args.taskname
     config['use_full_normal'] = args.use_full_normal
     config['residual_blocks'] = args.residual_blocks
