@@ -109,7 +109,9 @@ def evaluate_instance(net, config, global_iter):
     criterion = {}
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
-        DISCRIMINATIVE_DELTA_V
+        DISCRIMINATIVE_DELTA_V,
+        alpha=config['alpha'],
+        beta=config['beta']
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
@@ -561,7 +563,9 @@ def evaluate_online(net, config, global_iter):
     criterion = {}
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
-        DISCRIMINATIVE_DELTA_V
+        DISCRIMINATIVE_DELTA_V,
+        alpha=config['alpha'],
+        beta=config['beta']
     )
     criterion['nll'] = nn.functional.cross_entropy
     criterion['regression'] = nn.L1Loss()
@@ -671,7 +675,9 @@ def train_net(net, config):
     criterion = {}
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
-        DISCRIMINATIVE_DELTA_V
+        DISCRIMINATIVE_DELTA_V,
+        alpha=config['alpha'],
+        beta=config['beta']
     )
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
@@ -819,8 +825,8 @@ def train_uncertain(net, config):
     criterion['discriminative'] = DiscriminativeLoss(
         DISCRIMINATIVE_DELTA_D,
         DISCRIMINATIVE_DELTA_V,
-        alpha=1,
-        beta=2
+        alpha=config['alpha'],
+        beta=config['beta']
     )
     weight = None
     criterion['nll'] = nn.functional.cross_entropy
@@ -945,10 +951,18 @@ def train_uncertain(net, config):
 
 #            memory_used = torch.cuda.memory_allocated(device=None) / torch.tensor(1024*1024*1024).float()
 #            print("before backward: ", memory_used)
-            loss.backward()
-            optimizer.step()
-            del loss,losses
-
+            try:
+                loss.backward()
+                optimizer.step()
+            except RuntimeError as exception:
+                if "out of memory" in str(exception):
+                    print("WARNING: out of memory")
+                    if hasattr(torch.cuda, 'empty_cache'):
+                        torch.cuda.empty_cache()
+                    del loss,losses
+                    continue
+                else:
+                    raise exception
 #            memory_used = torch.cuda.memory_allocated(device=None)/ torch.tensor(1024*1024*1024).float()
 #            print("after backward: ", memory_used)
 
