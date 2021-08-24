@@ -178,11 +178,13 @@ class DiscriminativeLoss(nn.Module):
         return centroids
 
     def _new_variance(self, embedded, instance_mask, centroids):
+
         batch_size = embedded.size(0)
         loss = 0.0
         for i in range(batch_size):
             devation =  (embedded[i,:,:] - torch.index_select(centroids[i,:,:],0,instance_mask[i,:].view(-1))).norm(2,dim = 1)
             devation = torch.clamp(devation - self.delta_v, min=0.0) ** 2
+            # shall we include an weight inversely propotional to instance size, to balance training?   
             loss += devation.mean()
         return loss
 
@@ -256,6 +258,7 @@ def ConsistencyLoss_p2i(embeddings, indexs, instance_masks, max_instance_id, ins
             if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
                 norm = torch.norm(embedding[mask] - comp_mean_embeddings[instance_id], 2, dim=1)
                 var = torch.clamp(norm - DISCRIMINATIVE_DELTA_V, min=0.0) ** 2
+                # shall we include an weight inversely propotional to instance size , to balance training?   
                 loss += var.sum()
                 consistent_num += torch.sum(norm < DISCRIMINATIVE_DELTA_V).item()
                 points_num += norm.shape[0]
@@ -333,32 +336,33 @@ def ConsistencyLoss_p2p(embeddings, indexs, instance_masks, max_instance_id, ins
 
 
 def Consistency_Evaler(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene):
-    consistent_num = 0.0
-    complete_id = num_per_scene - 1
-    comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
-    points_num = 0
-    complete_num = torch.sum(indexs[complete_id])
-    for partial_id in range(num_per_scene - 1):
-        index = indexs[partial_id]
-        if (torch.sum(index) == complete_num):
-            continue
-        embedding = embeddings[index]
-        instance_mask = instance_masks[index]
-        for instance_id in range(max_instance_id):
-            mask = instance_mask == instance_id
-            if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
-                norm = torch.norm(embedding[mask] - comp_mean_embeddings[instance_id], 2, dim=1)
-                consistent_num += torch.sum(norm < DISCRIMINATIVE_DELTA_V).item()
-                points_num += norm.shape[0]
-    if points_num > 0:
-        consistent_num /= points_num
+    with torch.no_grad():
+        consistent_num = 0.0
+        complete_id = num_per_scene - 1
+        comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
+        points_num = 0
+        complete_num = torch.sum(indexs[complete_id])
+        for partial_id in range(num_per_scene - 1):
+            index = indexs[partial_id]
+            if (torch.sum(index) == complete_num):
+                continue
+            embedding = embeddings[index]
+            instance_mask = instance_masks[index]
+            for instance_id in range(max_instance_id):
+                mask = instance_mask == instance_id
+                if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
+                    norm = torch.norm(embedding[mask] - comp_mean_embeddings[instance_id], 2, dim=1)
+                    consistent_num += torch.sum(norm < DISCRIMINATIVE_DELTA_V).item()
+                    points_num += norm.shape[0]
+        if points_num > 0:
+            consistent_num /= points_num
     return consistent_num
 
 
 def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene, poses):
     with torch.no_grad():
         instance_cnt = 0
-        mprec = 0
+        miou = 0
         for partial_id in range(num_per_scene):
             index = indexs[partial_id]
             instance_mask = instance_masks[index]
@@ -384,8 +388,33 @@ def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instan
                 tp = (u * v).sum(0).item()
                 fp = (u * (~v)).sum(0).item()
                 total = (v.sum(0)).item()
-                mprec += tp / (total + fp)
+                miou += tp / (total + fp)
                 instance_cnt += 1
     if instance_cnt > 0:
-        mprec /= instance_cnt
-    return mprec
+        miou /= instance_cnt
+    return miou
+
+
+
+def Consistency_Evaler_i2i(embeddings, indexs, instance_masks, max_instance_id, instance_sizes, instance_cls, num_per_scene):
+    with torch.no_grad():
+        consistent_num = 0.0
+        complete_id = num_per_scene - 1
+        comp_mean_embeddings = scatter_mean(embeddings[indexs[complete_id]], instance_masks[indexs[complete_id]], dim=0)
+        instance_num = 0
+        complete_num = torch.sum(indexs[complete_id])
+        for partial_id in range(num_per_scene - 1):
+            index = indexs[partial_id]
+            if (torch.sum(index) == complete_num):
+                continue
+            embedding = embeddings[index]
+            instance_mask = instance_masks[index]
+            for instance_id in range(max_instance_id):
+                mask = instance_mask == instance_id
+                if instance_sizes[partial_id, instance_id] > 30 and instance_cls[instance_id] > 1:
+                    norm = torch.norm(torch.mean(embedding[mask], dim=0) - comp_mean_embeddings[instance_id], 2, dim=0)
+                    consistent_num += torch.sum(norm < DISCRIMINATIVE_DELTA_V).item()
+                    instance_num += 1
+        if instance_num > 0:
+            consistent_num /= instance_num
+    return consistent_num

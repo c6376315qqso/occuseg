@@ -2,7 +2,7 @@
 
 
 
-from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i, Consistency_Evaler,ConsistencyLoss_p2p, Embedding_Evaler
+from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i, Consistency_Evaler,ConsistencyLoss_p2p, Embedding_Evaler,Consistency_Evaler_i2i
 from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
 # import open3d
@@ -337,6 +337,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     instance_iou = torch.zeros(1,dtype=torch.float32).cuda()
     loss_consistent = torch.zeros(1,dtype=torch.float32).cuda()
 
+
+
     loss_var = torch.zeros(1,dtype=torch.float32).cuda().detach()
     loss_dis = torch.zeros(1,dtype=torch.float32).cuda().detach()
     loss_reg = torch.zeros(1,dtype=torch.float32).cuda().detach()
@@ -348,6 +350,7 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     uncertain_fn = 0
     tot_num = 0
     consistency_percent = 0
+    consistency_percent_i2i = 0
     uncertain_batch_num = 0
     batchSize = 0
     forground_indices = batch['y'][:,0] > 1
@@ -364,9 +367,9 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         complete_index = (batch['x'][0][:,config['dimension']] == complete_batch_id)
 
         instance_mask = batch['instance_masks'][complete_index].type(torch.long).view(1,-1).cuda()
-        max_instances_id = instance_mask[0, :].max()
-        instance_sizes = torch.zeros([batch['num_per_scene'], max_instances_id + 1]).cuda()
-        instance_cls = torch.zeros(max_instances_id + 1).cuda()
+        max_instances_id = instance_mask[0, :].max() + 1
+        instance_sizes = torch.zeros([batch['num_per_scene'], max_instances_id]).cuda()
+        instance_cls = torch.zeros(max_instances_id).cuda()
         torch.cuda.empty_cache()
 
 
@@ -432,6 +435,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         loss_consistent += loss_consis
         consistency_percent += consis_percent
 
+
+        consistency_percent_i2i += Consistency_Evaler_i2i(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'])
         emb_instance_precision += Embedding_Evaler(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'], pose)
                 
         
@@ -443,7 +448,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     loss_consistent *= config['consistency_weight']
     consistency_percent /= len(tbl)
     emb_instance_precision /= len(tbl)
-    
+    consistency_percent_i2i /= len(tbl)
+
     EmbeddingLoss /= batchSize
     loss_var /= batchSize
     loss_dis /= batchSize
@@ -463,7 +469,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'uncertain_loss': UncertainLoss, 'uncertain_num': uncertain_num,
             'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num, 'consistent_loss':loss_consistent,
-            'consistency_percent': consistency_percent, 'emb_instance_precision': emb_instance_precision, 'emb_var':loss_var, 'emb_dis': loss_dis, 'emb_reg':loss_reg}
+            'consistency_percent': consistency_percent, 'emb_instance_precision': emb_instance_precision, 'emb_var':loss_var, 'emb_dis': loss_dis, 'emb_reg':loss_reg, 
+            'consistency_percent_i2i': consistency_percent_i2i}
 
 
 def evaluate(net, config, global_iter):
@@ -867,6 +874,7 @@ def train_uncertain(net, config):
         uncertain_num = 0
         tot_num = 0
         consistency_percent = 0
+        consistency_percent_i2i = 0
         emb_instance_precision = 0
         print('TASK NAME =', config['taskname'])
         for i, batch in enumerate(tqdm((config['train_data_loader']))):
@@ -938,6 +946,7 @@ def train_uncertain(net, config):
             tot_num += losses['tot_num']
             
             consistency_percent += losses['consistency_percent']
+            consistency_percent_i2i += losses['consistency_percent_i2i']
 
             if i % 50 == 49:
                 print('loss: %.2f' % (cum_loss / (i + 1)))
@@ -982,6 +991,7 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_consistent_loss", consistent_loss / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_consistency_percent", consistency_percent / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_consistency_percent_i2i", consistency_percent_i2i / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_emb_instance_precision", emb_instance_precision / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_var", loss_var / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_dis", loss_dis / epoch_len, global_step= (epoch + 1))
@@ -1224,7 +1234,7 @@ if __name__ == '__main__':
 
         if(args.evaluate):
             evaluate_instance(net=net,  config=config,global_iter=0)
-        elif config['model_type'] == 'occ':
+        elif config['model_type'] == 'occuseg':
             train_net(net=net, config=config)
         elif config['model_type'] == 'uncertain':
             train_uncertain(net, config)

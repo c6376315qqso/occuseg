@@ -35,7 +35,8 @@
    --pretrain ./ckpts/test_train/Epoch260.pth\
    --uncertain_task_weight 0.5 \
    --uncertain_weight 15.0\
-   --consistency_weight 10.0
+   --consistency_weight 10.0\
+   --restore
 #    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train
