@@ -359,7 +359,10 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     displacements_gt = batch['displacements'].cuda()
     scene_masks_list = batch['scene_masks_list']
     
+    
+    emb_instance_miou = 0
     emb_instance_precision = 0
+    emb_instance_recall = 0
     
     for count,idx in enumerate(tbl):
         scene_masks = scene_masks_list[count]
@@ -437,8 +440,10 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
 
         consistency_percent_i2i += Consistency_Evaler_i2i(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'])
-        emb_instance_precision += Embedding_Evaler(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'], pose)
-                
+        ipr = Embedding_Evaler(embeddings, indexs, batch['instance_masks'].long().cuda(), max_instances_id, instance_sizes, instance_cls, batch['num_per_scene'], pose)
+        emb_instance_miou += ipr[0]
+        emb_instance_precision += ipr[1]
+        emb_instance_recall += ipr[2]
         
 
     if uncertain_batch_num > 0:
@@ -447,8 +452,11 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     loss_consistent /= len(tbl)
     loss_consistent *= config['consistency_weight']
     consistency_percent /= len(tbl)
-    emb_instance_precision /= len(tbl)
     consistency_percent_i2i /= len(tbl)
+
+    emb_instance_miou /= len(tbl)
+    emb_instance_precision /= len(tbl)
+    emb_instance_recall /= len(tbl)
 
     EmbeddingLoss /= batchSize
     loss_var /= batchSize
@@ -469,8 +477,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'uncertain_loss': UncertainLoss, 'uncertain_num': uncertain_num,
             'uncertain_tp':uncertain_tp, 'uncertain_tn':uncertain_tn, 'uncertain_fp':uncertain_fp, 'uncertain_fn':uncertain_fn, 'tot_num':tot_num, 'consistent_loss':loss_consistent,
-            'consistency_percent': consistency_percent, 'emb_instance_precision': emb_instance_precision, 'emb_var':loss_var, 'emb_dis': loss_dis, 'emb_reg':loss_reg, 
-            'consistency_percent_i2i': consistency_percent_i2i}
+            'consistency_percent': consistency_percent, 'emb_instance_ipr': (emb_instance_miou, emb_instance_precision, emb_instance_recall), 'emb_var':loss_var, 
+            'emb_dis': loss_dis, 'emb_reg':loss_reg, 'consistency_percent_i2i': consistency_percent_i2i}
 
 
 def evaluate(net, config, global_iter):
@@ -876,6 +884,8 @@ def train_uncertain(net, config):
         consistency_percent = 0
         consistency_percent_i2i = 0
         emb_instance_precision = 0
+        emb_instance_miou = 0
+        emb_instance_recall = 0
         print('TASK NAME =', config['taskname'])
         for i, batch in enumerate(tqdm((config['train_data_loader']))):
             # checked
@@ -933,7 +943,11 @@ def train_uncertain(net, config):
             drift_loss += losses['drift_loss'].item()
             instance_iou += losses['instance_iou'].item()
 
-            emb_instance_precision += losses['emb_instance_precision']
+
+            ipr = losses['emb_instance_ipr']
+            emb_instance_miou += ipr[0]
+            emb_instance_precision += ipr[1]
+            emb_instance_recall += ipr[2]
             
             consistent_loss += losses['consistent_loss'].item()
 #            print(losses['drift_loss'].item())
@@ -992,10 +1006,13 @@ def train_uncertain(net, config):
         train_writer.add_scalar("train/epoch_avg_instance_precision", instance_iou / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_consistency_percent", consistency_percent / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_consistency_percent_i2i", consistency_percent_i2i / epoch_len, global_step= (epoch + 1))
+
+        train_writer.add_scalar("train/epoch_avg_emb_instance_miou", emb_instance_miou / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_emb_instance_precision", emb_instance_precision / epoch_len, global_step= (epoch + 1))
+        train_writer.add_scalar("train/epoch_avg_emb_instance_recall", emb_instance_recall / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_var", loss_var / epoch_len, global_step= (epoch + 1))
         train_writer.add_scalar("train/epoch_avg_embedding_dis", loss_dis / epoch_len, global_step= (epoch + 1))
-        train_writer.add_scalar("train/epoch_avg_embedding_reg", loss_reg / epoch_len, global_step= (epoch + 1))
+        #train_writer.add_scalar("train/epoch_avg_embedding_reg", loss_reg / epoch_len, global_step= (epoch + 1))
         
         if epoch >= config['uncertain_st_epoch']:
             uncertain_iou = uncertain_tp / (uncertain_tp + uncertain_fn + uncertain_fp)
@@ -1003,7 +1020,7 @@ def train_uncertain(net, config):
                 train_writer.add_scalar("train/epoch_avg_uncertain_accuracy", (uncertain_tp + uncertain_tn) / (uncertain_tp + uncertain_tn + uncertain_fp + uncertain_fn), global_step= (epoch + 1))
                 train_writer.add_scalar("train/epoch_avg_uncertain_precision", uncertain_tp / (uncertain_tp + uncertain_fp), global_step= (epoch + 1))
                 train_writer.add_scalar("train/epoch_avg_uncertain_recall", uncertain_tp / (uncertain_tp + uncertain_fn), global_step= (epoch + 1))
-                train_writer.add_scalar("train/epoch_avg_uncertain_iou", uncertain_iou, global_step= (epoch + 1))
+                #train_writer.add_scalar("train/epoch_avg_uncertain_iou", uncertain_iou, global_step= (epoch + 1))
                 train_writer.add_scalar("train/epoch_avg_uncertain_percent", uncertain_num / tot_num, global_step= (epoch + 1))
             except ZeroDivisionError:
                 print('division by zero!')

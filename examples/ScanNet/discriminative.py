@@ -363,6 +363,8 @@ def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instan
     with torch.no_grad():
         instance_cnt = 0
         miou = 0
+        precision = 0
+        recall = 0
         for partial_id in range(num_per_scene):
             index = indexs[partial_id]
             instance_mask = instance_masks[index]
@@ -377,7 +379,7 @@ def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instan
                 instance_indices = instance_mask == i
                 ######## choose 4 * max instance radius to test precision in order to reduce computation burden.
                 spatial_distance = (pose - mean_pose[i]).norm(dim=1)
-                dist_threshold = torch.max(spatial_distance[instance_indices]) * 4
+                dist_threshold = torch.max(spatial_distance[instance_indices]) * 5
                 samples = spatial_distance < dist_threshold
                 samples_gt = instance_indices[samples]
                 samples_embedding = embedding[samples,:]
@@ -387,12 +389,17 @@ def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instan
                 v = samples_gt
                 tp = (u * v).sum(0).item()
                 fp = (u * (~v)).sum(0).item()
+                fn = ((~u) * v).sum(0).item()
                 total = (v.sum(0)).item()
                 miou += tp / (total + fp)
+                precision += tp / (tp + fp)
+                recall += tp / (tp + fn)
                 instance_cnt += 1
     if instance_cnt > 0:
         miou /= instance_cnt
-    return miou
+        precision /= instance_cnt
+        recall /= instance_cnt
+    return miou, precision, recall
 
 
 
