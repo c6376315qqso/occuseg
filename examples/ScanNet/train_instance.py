@@ -464,6 +464,8 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     loss_reg /= batchSize
     DisplacementLoss /= batchSize
     loss_classification /= batchSize
+    loss_classification *= config['classification_weight']
+
     loss_drift /= batchSize
     instance_iou /= batchSize
     

@@ -85,6 +85,7 @@ def get_args():
     parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4  3.backbone')
     parser.add_option('--alpha', type=float, default=1.0, help='discriminative loss var weight')
     parser.add_option('--beta', type=float, default=1.0, help='discriminative loss dis weight')
+    parser.add_option('--classification_weight', type=float, default=10.0, help='classification loss weight')
     (options, args) = parser.parse_args()
     print(args)
     return options
@@ -116,6 +117,7 @@ def ArgsToConfig(args):
     config['pretrain'] = args.pretrain
     config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m]
     config['kernel_size'] = args.kernel_size
+    config['classification_weight'] = args.classification_weight
     config['use_rotation_noise'] = args.use_rotation_noise
     config['checkpoint'] = args.checkpoint
     config['checkpoints_dir'] = args.checkpoints_dir

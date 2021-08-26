@@ -116,7 +116,7 @@ def ClassificationLoss(embedded, bw, regressed_pose,pose,instance_mask,pred_sema
 #                    loss += criterion(prob, instance_indices.float())
                 mask_count += 1
     if(mask_count > 0):
-        loss = loss / mask_count * 10
+        loss = loss / mask_count
         miou = miou / mask_count
     return loss, miou
 
@@ -249,8 +249,8 @@ def ConsistencyLoss_p2i(embeddings, indexs, instance_masks, max_instance_id, ins
     complete_num = torch.sum(indexs[complete_id])
     for partial_id in range(num_per_scene - 1):
         index = indexs[partial_id]
-        if (torch.sum(index) == complete_num):
-            continue
+        #if (torch.sum(index) == complete_num):
+        #    continue
         embedding = embeddings[index]
         instance_mask = instance_masks[index]
         for instance_id in range(max_instance_id):
@@ -392,8 +392,8 @@ def Embedding_Evaler(embeddings, indexs, instance_masks, max_instance_id, instan
                 fn = ((~u) * v).sum(0).item()
                 total = (v.sum(0)).item()
                 miou += tp / (total + fp)
-                precision += tp / (tp + fp)
-                recall += tp / (tp + fn)
+                precision += tp / (tp + fp + 0.0000001)
+                recall += tp / (tp + fn + 0.00000001)
                 instance_cnt += 1
     if instance_cnt > 0:
         miou /= instance_cnt
