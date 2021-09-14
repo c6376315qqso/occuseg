@@ -782,7 +782,7 @@ class UncertainDenseUNet(nn.Module):
         # self.sigmoid_uncertain = nn.Sigmoid()
 
     def load_my_pretrain(self, weight_path):
-        pretrained_dict = torch.load(weight_path)
+        pretrained_dict = torch.load(weight_path, map_location='cuda:' + str(self.config['gpu']))
         model_dict = self.state_dict()
         # 1. filter out unnecessary keys
         pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}

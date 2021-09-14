@@ -1,4 +1,4 @@
-name: iscn
+name: wn
 channels:
   - pytorch
   - conda-forge

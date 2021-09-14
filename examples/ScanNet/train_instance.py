@@ -374,6 +374,9 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
         instance_sizes = torch.zeros([batch['num_per_scene'], max_instances_id]).cuda()
         instance_cls = torch.zeros(max_instances_id).cuda()
         torch.cuda.empty_cache()
+        
+
+        comp_mean_embeddings = scatter_mean(embeddings[complete_index], instance_mask.view(-1), dim=0)
 
 
         indexs = []
@@ -384,10 +387,27 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             index = (batch['x'][0][:,config['dimension']] == batch_id)
             indexs += [index]
             # if torch.sum(scene_mask) != scene_mask.shape[0]:
+            embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
+            instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
+            pred_semantics = batch['y'][index,0]
+            emb_loss, l_v, l_d, l_r = criterion['discriminative'](embedding, instance_mask)
+            EmbeddingLoss += emb_loss
+            loss_var += l_v
+            loss_dis += l_d
+            loss_reg += l_r
+            displacement_error = torch.zeros(1,dtype=torch.float32).cuda()
+            cluster_size = 0
+
+            displacement_cluster_error = scatter_mean(torch.norm(displacements[index,:]- displacements_gt[index,:], dim = 1), instance_mask.view(-1),dim = 0)
+
+
             ##################### uncertain loss
             if epoch >= config['uncertain_st_epoch']:  
+                # semantic uncertain
                 uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
                 uncertain_gt = uncertain_gt.detach()
+                # instance uncertain
+                uncertain_gt = uncertain_gt | ((torch.norm(embeddings[index] - comp_mean_embeddings[instance_mask.view(-1)], 2, dim=1) >= 0.8) & (batch['y'][index,0] > 1))
                 uncertain_gt = uncertain_gt.view(-1,1).float()
                 uncertain_num += torch.sum(uncertain_gt).item()
                 tot_num += uncertain_gt.shape[0]
@@ -402,18 +422,6 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
 
                 UncertainLoss += criterion['binnary_classification'](uncertain[index], uncertain_gt)
             ####################
-            embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
-            instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
-            pred_semantics = batch['y'][index,0]
-            emb_loss, l_v, l_d, l_r = criterion['discriminative'](embedding, instance_mask)
-            EmbeddingLoss += emb_loss
-            loss_var += l_v
-            loss_dis += l_d
-            loss_reg += l_r
-            displacement_error = torch.zeros(1,dtype=torch.float32).cuda()
-            cluster_size = 0
-
-            displacement_cluster_error = scatter_mean(torch.norm(displacements[index,:]- displacements_gt[index,:], dim = 1), instance_mask.view(-1),dim = 0)
 
             mask_size = instance_mask[0,:].max() + 1
             for mid in range(mask_size):
