@@ -112,6 +112,7 @@ def ArgsToConfig(args):
     config['dimension'] = args.dimension
     config['full_scale'] = args.full_scale
     config['uncertain_task_weight'] = args.uncertain_task_weight
+    config['all_to_train'] = args.all_to_train
 #    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 6 * args.m, 8 * args.m, 12 * args.m]
 #    config['unet_structure'] = [2 * args.m, 2.5 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m, 7 * args.m]
     config['pretrain'] = args.pretrain

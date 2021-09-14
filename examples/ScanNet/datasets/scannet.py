@@ -477,8 +477,8 @@ class ScanNetOnline(object):
     def __init__(self,
                  train_pth_path,
                  val_pth_path,
-                 config,
-                 train_seq_path='./datasets/scannetTrainSeq'):
+                 config
+                 ):
         if isinstance(train_pth_path,list):
             self.train_pths = []
             
@@ -489,7 +489,6 @@ class ScanNetOnline(object):
         self.train_scene_masks = []
         self.val_pths = glob.glob(val_pth_path)
         self.train, self.val = [], []
-        self.train_seq_path = train_seq_path
         self.blur0 = np.ones((3, 1, 1)).astype('float32') / 3
         self.blur1 = np.ones((1, 3, 1)).astype('float32') / 3
         self.blur2 = np.ones((1, 1, 3)).astype('float32') / 3
@@ -913,7 +912,7 @@ class ScanNetOnline(object):
             self.train.append(x)
         for x in tqdm(torch.utils.data.DataLoader(
                 self.train_pths,
-                collate_fn=lambda x: torch.load(os.path.join(self.train_seq_path, x[0][x[0].find('scene'):x[0].find('scene')+12], 'online_masks', self.partial_masks_name)), 
+                collate_fn=lambda x: torch.load(os.path.join(x[0][:x[0].find('scene')+12], 'online_masks', self.partial_masks_name)), 
                 num_workers=mp.cpu_count())):
             self.train_scene_masks.append(x)
 

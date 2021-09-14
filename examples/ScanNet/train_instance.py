@@ -1113,7 +1113,7 @@ def preprocess():
     if True:
         if args.all_to_train == True:
             train_dataset_mid_dir = 'full_train'
-            test_dataset_mid_dir = 'full_val'
+            test_dataset_mid_dir = 'val'
         else:
             train_dataset_mid_dir = 'train'
             test_dataset_mid_dir = 'val'
@@ -1170,11 +1170,13 @@ def preprocess():
                             config = config,
                             )
         elif config['model_type'] == 'uncertain':
-            train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
+            if config['all_to_train']:
+                train_pth_path = 'datasets/scannet*Seq/*/*_instance.pth'
+            else:
+                train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
             dataset = ScanNetOnline(train_pth_path=train_pth_path,
                             val_pth_path=val_pth_path,
-                            config = config,
-                            train_seq_path='./datasets/scannetTrainSeq'
+                            config = config
                             )
 
             
