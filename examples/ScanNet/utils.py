@@ -380,6 +380,74 @@ def evaluate_stanford3D(pred_ids,gt_ids,train_writer,iter_id, class_num = 20,top
         return mean_iou
 
 
+class scenenn_params:
+    def __init__(self):
+        # self.class_freq = np.asarray([19.203, 16.566, 27.329,
+        #                                 2.428, 2.132, 2.123, 5.494, 3.25,
+        #                                 4.079, 0.488, 4.726, 1.264, 10.918, 100.0])
+        # self.class_weights = -np.log(self.class_freq / 100.0)
+        self.num_classes = 10
+        # self.color_map = [  [128, 128, 128], # ceiling (red)
+        #                     [124, 152, 0], # floor (green)
+        #                     [255, 225, 25], # walls (yellow)
+        #                     [0,   130, 200], # beam (blue)
+        #                     [245, 130,  48], # column (orange)
+        #                     [145,  30, 180], # window (purple)
+        #                     [0, 130, 200], # door (cyan)
+        #                     [0, 0, 128], # table (black)
+        #                     [128, 0, 0], # chair (maroon)
+        #                     [250, 190, 190], # sofa (pink)
+        #                     [170, 110, 40], # bookcase (teal)
+        #                     [0, 0, 0], # board (navy)
+        #                     [170, 110,  40], # clutter (brown)
+        #                     [128, 128, 128]] # stairs (grey)
+        self.class_name = ['wall','floor','cabinet','bed','chair','sofa','table','desk','television','other-prop']
+
+
+def evaluate_scenenn(pred_ids,gt_ids,train_writer,iter_id, class_num = 10,topic = 'valid'):
+        print('evaluating', gt_ids.size, 'points...')
+        confusion=confusion_matrix(pred_ids,gt_ids,class_num)
+        class_ious = {}
+        dataset = scenenn_params()
+        num_classes = dataset.num_classes
+        for i in range(num_classes):
+                label_name = dataset.class_name[i]
+                label_id = i
+                tp = np.longlong(confusion[label_id, label_id])
+                fp = np.longlong(confusion[label_id, :].sum()) - tp
+                not_ignored = [l for l in range(num_classes) if not l == label_id]
+                fn = np.longlong(confusion[not_ignored, label_id].sum())
+                denom = (tp + fp + fn)
+                if denom > 0 and (tp + fn) > 0:
+                    class_ious[label_name] = (float(tp) / denom, tp, denom, fp, fn)
+
+        sum_iou = 0
+        for label_name in class_ious:
+                sum_iou+=class_ious[label_name][0]
+        mean_iou = sum_iou/len(class_ious)
+
+        print('classes          IoU          fp          fn')
+        print('----------------------------')
+        for i in range(num_classes):
+                label_name = dataset.class_name[i]
+                if label_name in class_ious:
+                        print('{0:<14s}: {1:>5.3f}   ({2:>6d}/{3:<6d}/{4:>6d}/{5:<6d})'.format(label_name, class_ious[label_name][0], class_ious[label_name][1], class_ious[label_name][2],class_ious[label_name][3],class_ious[label_name][4]))
+                else:
+                        print('{0:<14s}: {1}'.format(label_name, 'missing'))
+        print('mean IOU', mean_iou)
+
+        train_writer.add_scalar(topic+"/overall_iou", mean_iou, iter_id)
+        return mean_iou
+
+
+
+
+
+
+
+
+
+
 class FocalLoss(nn.Module):
     def __init__(self):
         super(FocalLoss, self).__init__()

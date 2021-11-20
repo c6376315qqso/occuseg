@@ -11,6 +11,8 @@ examples/ScanNet/ckpts/*
 examples/ScanNet/datasets/scannetTrainSeq
 examples/ScanNet/datasets/scannetValSeq
 examples/ScanNet/datasets/scannet_data
+examples/ScanNet/datasets/scenenn_cls10
+examples/ScanNet/datasets/scenenn_data
 examples/ScanNet/q.log
 examples/ScanNet/runs
 examples/ScanNet/.zt_*

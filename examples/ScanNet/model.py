@@ -760,8 +760,20 @@ class LearningBWDenseUNet(nn.Module):
         semantics, feature, embedding, offset, displacement = self.backbone(x)
         bw = self.relu_bw(self.linear_bw(self.fc_bw(feature)))
         occupancy = self.relu_occupancy(self.linear_occupancy(self.fc_occupancy(feature)))
+        #print('nan', torch.sum(torch.isnan(embedding)))
         return semantics, feature, embedding, offset, displacement, bw, occupancy
 
+    def load_my_pretrain(self, weight_path):
+        pretrained_dict = torch.load(weight_path, map_location='cuda:' + str(self.config['gpu']))
+        model_dict = self.state_dict()
+        # 1. filter out unnecessary keys
+
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and k != 'backbone.linear.weight' and k != 'backbone.linear.bias'}
+        
+        # 2. overwrite entries in the existing state dict
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)
+        pass
 
 class UncertainDenseUNet(nn.Module):
     def __init__(self, config):

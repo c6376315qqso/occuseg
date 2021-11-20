@@ -101,8 +101,9 @@ def ClassificationLoss(embedded, bw, regressed_pose,pose,instance_mask,pred_sema
 #                weight = torch.ones([samples_gt.shape[0]]).cuda()
 #                weight[samples_gt] = samples_gt.shape[0] / samples_gt.sum(0)
 #                criterion = nn.BCELoss(weight)
-
+                
                 criterion = nn.BCELoss()
+#                print(semantic_embedding)
                 loss += criterion(prob, samples_gt.float()) #+ (bw_std[mid,0] + bw_std[mid,1]) * 0.1
 #                print(criterion(prob, samples_gt.float()), bw_devation * 0.01)
                 with torch.no_grad():

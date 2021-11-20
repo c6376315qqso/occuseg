@@ -2,6 +2,8 @@
 
 
 
+from sklearn import cluster
+from examples.ScanNet.utils import evaluate_scenenn
 from examples.ScanNet.discriminative import ConsistencyLoss_p2i,ConsistencyLoss_i2i, Consistency_Evaler,ConsistencyLoss_p2p, Embedding_Evaler,Consistency_Evaler_i2i
 from functools import partial
 from examples.ScanNet.datasets.scannet import ScanNetOnline
@@ -210,7 +212,10 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
     instance_iou = torch.zeros(1,dtype=torch.float32).cuda()
 
     batchSize = 0
-    forground_indices = batch['y'][:,0] > 1
+    if config['dataset'] == 'scannet':
+        forground_indices = batch['y'][:,0] > 1
+    elif config['dataset'] == 'scenenn':
+        forground_indices = batch['y'][:,0] > -1
     regressed_pose = batch['x'][0][:,0:3].cuda() / config['scale'] - displacements
     pose = batch['x'][0][:,0:3].cuda() / config['scale']
     displacements_gt = batch['displacements'].cuda()
@@ -220,7 +225,7 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
         embedding = embeddings[index,:].view(1,-1,embeddings.shape[1])
         instance_mask = batch['instance_masks'][index].view(1,-1).cuda().type(torch.long)
         pred_semantics = batch['y'][index,0]
-        EmbeddingLoss += criterion['discriminative'](embedding, instance_mask)
+        EmbeddingLoss += criterion['discriminative'](embedding, instance_mask)[0]
 
         displacement_error = torch.zeros(1,dtype=torch.float32).cuda()
         occupancy_error = torch.zeros(1,dtype=torch.float32).cuda()
@@ -236,13 +241,14 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
         for mid in range(mask_size):
             instance_indices = (instance_mask[0,:]==mid)
             cls = pred_semantics[instance_indices][0]
-            if(cls > 1):
+            if (config['dataset'] == 'scenenn' and cls > -1) or (config['dataset'] == 'scannet' and cls > 1):
                 displacement_error += displacement_cluster_error[mid]
                 occupancy_error += occupancy_cluster_error[mid] +  occupancy_cluster_std[mid]
+                cluster_size += 1
+
 #                current_occupancy = occupancy[index,:]
 #                median_occupancy = torch.median(current_occupancy[instance_indices,:])
 #                print(cls.item(), torch.exp(pred_occupancy[mid]).item(),torch.exp(median_occupancy).item(), torch.exp(true_occupancy[mid]).item())
-                cluster_size += 1
         if cluster_size > 0:
             OccupancyLoss += occupancy_error / cluster_size
             DisplacementLoss += displacement_error / cluster_size
@@ -264,6 +270,13 @@ def calculate_cost(predictions, embeddings, offsets, displacements, bw, criterio
     #print('previous occupancy loss: ', PreOccupancyLoss.item(),OccupancyLoss.item(),'    ', PreDisplacementLoss.item(),DisplacementLoss.item())
     RegressionLoss = criterion['regression'](offsets[forground_indices ], batch['offsets'].cuda()[forground_indices ]) * config['regress_weight']
     #del RegressionLoss
+    # print('semantic loss:',SemanticLoss)
+    # print('embedding loss:',EmbeddingLoss)
+    # print('regression loss:',RegressionLoss)
+    # print('displace loss:',DisplacementLoss)
+    # print('classification loss:',loss_classification)
+    # print('occupancy loss:',OccupancyLoss)
+
     return {'semantic_loss': SemanticLoss, 'embedding_loss':EmbeddingLoss, 'regression_loss':RegressionLoss, 'displacement_loss':DisplacementLoss,
             'classification_loss':loss_classification, 'drift_loss':loss_drift, 'instance_iou':instance_iou, 'occupancy_loss': OccupancyLoss}
 
@@ -300,12 +313,15 @@ def calculate_cost_online_eval(predictions, embeddings, offsets, displacements, 
         for mid in range(mask_size):
             instance_indices = (instance_mask[0,:]==mid)
             cls = pred_semantics[instance_indices][0]
-            if(cls > 1):
+            if (config['dataset'] == 'scenenn' and cls > -1):
                 displacement_error += displacement_cluster_error[mid]
+                cluster_size += 1
+            elif (config['dataset'] == 'scannet' and cls > 1):
+                displacement_error += displacement_cluster_error[mid]
+                cluster_size += 1
 #                current_occupancy = occupancy[index,:]
 #                median_occupancy = torch.median(current_occupancy[instance_indices,:])
 #                print(cls.item(), torch.exp(pred_occupancy[mid]).item(),torch.exp(median_occupancy).item(), torch.exp(true_occupancy[mid]).item())
-                cluster_size += 1
         if cluster_size > 0:
             DisplacementLoss += displacement_error / cluster_size
         loss_c, i_iou = ClassificationLoss(embedding,bw[index,:].view(1,-1,2), regressed_pose[index,:].view(1,-1,3), pose[index,:].view(1,-1,3), instance_mask,pred_semantics)
@@ -353,7 +369,12 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
     consistency_percent_i2i = 0
     uncertain_batch_num = 0
     batchSize = 0
-    forground_indices = batch['y'][:,0] > 1
+
+    if config['dataset'] == 'scannet':
+        forground_indices = batch['y'][:,0] > 1
+    elif config['dataset'] == 'scenenn':
+        forground_indices = batch['y'][:,0] > -1
+
     regressed_pose = batch['x'][0][:,0:3].cuda() / config['scale'] - displacements
     pose = batch['x'][0][:,0:3].cuda() / config['scale']
     displacements_gt = batch['displacements'].cuda()
@@ -405,10 +426,10 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
             if epoch >= config['uncertain_st_epoch']:  
                 # semantic uncertain
                 uncertain_gt = torch.argmax(predictions[complete_index][scene_mask], dim=-1) != torch.argmax(predictions[index], -1)
-                uncertain_gt = uncertain_gt.detach()
                 # instance uncertain
-                uncertain_gt = uncertain_gt | ((torch.norm(embeddings[index] - comp_mean_embeddings[instance_mask.view(-1)], 2, dim=1) >= 0.8) & (batch['y'][index,0] > 1))
+                #uncertain_gt = uncertain_gt | ((torch.norm(embeddings[index] - comp_mean_embeddings[instance_mask.view(-1)], 2, dim=1) >= 0.8) & (batch['y'][index,0] > 1))
                 uncertain_gt = uncertain_gt.view(-1,1).float()
+                uncertain_gt = uncertain_gt.detach()
                 uncertain_num += torch.sum(uncertain_gt).item()
                 tot_num += uncertain_gt.shape[0]
                 uncertain_gt_byte = uncertain_gt.byte()
@@ -431,7 +452,10 @@ def calculate_cost_online(predictions, embeddings, offsets, displacements, bw, c
                     continue
                 cls = pred_semantics[instance_indices][0]
                 instance_cls[mid] = cls
-                if(cls > 1):
+                if (config['dataset'] == 'scenenn' and cls > -1):
+                    displacement_error += displacement_cluster_error[mid]
+                    cluster_size += 1
+                elif (config['dataset'] == 'scannet' and cls > 1):
                     displacement_error += displacement_cluster_error[mid]
                     cluster_size += 1
             if cluster_size > 0:
@@ -770,6 +794,7 @@ def train_net(net, config):
 
 #            memory_used = torch.cuda.memory_allocated(device=None) / torch.tensor(1024*1024*1024).float()
 #            print("before backward: ", memory_used)
+
             loss.backward()
             optimizer.step()
             del loss,losses
@@ -904,13 +929,13 @@ def train_uncertain(net, config):
             optimizer.zero_grad()
             batch['x'][1] = batch['x'][1].cuda()
             # print(batch['pth_file'])
-            logits, feature, embeddings, offset, displacements, bw, uncertain = net(batch['x'])
-
-            batch['y'] = batch['y'].cuda()
-            batch['region_masks'] =  batch['region_masks'].cuda()
-            batch['offsets'] =  batch['offsets'].cuda()
-            batch['displacements'] =  batch['displacements'].cuda()
             try:
+                logits, feature, embeddings, offset, displacements, bw, uncertain = net(batch['x'])
+
+                batch['y'] = batch['y'].cuda()
+                batch['region_masks'] =  batch['region_masks'].cuda()
+                batch['offsets'] =  batch['offsets'].cuda()
+                batch['displacements'] =  batch['displacements'].cuda()
                 torch.cuda.empty_cache()
                 losses = calculate_cost_online(logits, embeddings, offset, displacements, bw, criterion, batch, uncertain, epoch, config)
             #classification loss
@@ -1087,7 +1112,7 @@ def preprocess():
     # else:
     #     raise NotImplementedError
 
-    if config['model_type'] == 'occ':
+    if config['model_type'] == 'occuseg':
         Model = LearningBWDenseUNet
     elif config['model_type'] == 'uncertain':
         Model = UncertainDenseUNet
@@ -1110,8 +1135,9 @@ def preprocess():
         config['class_num'] = 14
         iou_evaluate = evaluate_stanford3D
         dataset_dir = 'stanford_data/instance'
-    else:
-        raise NotImplementedError
+    elif args.dataset == 'scenenn':
+        iou_evaluate = evaluate_scenenn
+        config['class_num'] = 10
 
     # combine multiple data sources
     use_train_data = args.use_train_data
@@ -1137,25 +1163,27 @@ def preprocess():
         pth_reg_exp = '*.pth'
 
         train_pth_path=[]
-        if args.test:
-            train_pth_path.append('datasets/simple_data/*.pth')
-            val_pth_path = 'datasets/simple_data/*.pth'
-        else:
-            if 'o' in use_train_data:
-                train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, train_dataset_mid_dir, pth_reg_exp))
-    #        if '0' in use_train_data:
-    #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_0" ,train_dataset_mid_dir, pth_reg_exp))
-    #        if '1' in use_train_data:
-    #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_1" ,train_dataset_mid_dir, pth_reg_exp))
-    #        if '2' in use_train_data:
-    #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_2" ,train_dataset_mid_dir, pth_reg_exp))
+        print(args.dataset)
+        if args.dataset == 'scannet':
+            if args.test:
+                train_pth_path.append('datasets/simple_data/*.pth')
+                val_pth_path = 'datasets/simple_data/*.pth'
+            else:
+                if 'o' in use_train_data:
+                    train_pth_path.append('datasets/scannetTrainSeq/scene*/*_instance.pth')
+        #        if '0' in use_train_data:
+        #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_0" ,train_dataset_mid_dir, pth_reg_exp))
+        #        if '1' in use_train_data:
+        #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_1" ,train_dataset_mid_dir, pth_reg_exp))
+        #        if '2' in use_train_data:
+        #            train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, "partial_2" ,train_dataset_mid_dir, pth_reg_exp))
 
-            if 'o' in use_val_data:
-                val_pth_path='datasets/{}/{}/{}'.format(dataset_dir, test_dataset_mid_dir, pth_reg_exp)
-    #        elif '0' in use_val_data:
-    #            val_pth_path='datasets/{}/{}/{}/{}'.format(dataset_dir, "partial_0", test_dataset_mid_dir, pth_reg_exp)
-    #        else:
-    #            raise
+                if 'o' in use_val_data:
+                    val_pth_path='datasets/scannetValSeq/scene*/*_instance.pth'
+        #        elif '0' in use_val_data:
+        #            val_pth_path='datasets/{}/{}/{}/{}'.format(dataset_dir, "partial_0", test_dataset_mid_dir, pth_reg_exp)
+        #        else:
+        #            raise
 
 
         if args.dataset == 'stanford3d':
@@ -1168,20 +1196,28 @@ def preprocess():
                 else:
                     train_pth_path.append('datasets/{}/{}/{}'.format(dataset_dir, 'full' , 'Area_'+str(candidate_sence)+'_*.pth'))
 
+        if args.dataset == 'scenenn':
+            
+            train_pth_path.append('datasets/scenenn_cls10/train/*/*_cls10_instance.pth')
+            val_pth_path = 'datasets/scenenn_cls10/val/*/*_cls10_instance.pth'
+
+
+
         if config['simple_train'] == True:
             train_pth_path='datasets/simple_data/{}'.format(pth_reg_exp)
             val_pth_path='datasets/simple_data/{}'.format(pth_reg_exp)
         print(train_pth_path, val_pth_path)
-        if config['model_type'] == 'occ':
+        if config['model_type'] == 'occuseg':
             dataset = ScanNet(train_pth_path=train_pth_path,
                             val_pth_path=val_pth_path,
                             config = config,
                             )
         elif config['model_type'] == 'uncertain':
-            if config['all_to_train']:
-                train_pth_path = 'datasets/scannet*Seq/*/*_instance.pth'
-            else:
-                train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
+            if args.dataset == 'scannet':
+                if config['all_to_train']:
+                    train_pth_path = 'datasets/scannet*Seq/*/*_instance.pth'
+                else:
+                    train_pth_path = 'datasets/scannetTrainSeq/*/*_instance.pth'
             dataset = ScanNetOnline(train_pth_path=train_pth_path,
                             val_pth_path=val_pth_path,
                             config = config

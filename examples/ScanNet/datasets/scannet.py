@@ -28,7 +28,7 @@ class ScanNet(object):
             self.train_pths = glob.glob(train_pth_path)
         self.val_pths = glob.glob(val_pth_path)
         self.train, self.val = [], []
-
+        self.config = config
         self.blur0 = np.ones((3, 1, 1)).astype('float32') / 3
         self.blur1 = np.ones((1, 3, 1)).astype('float32') / 3
         self.blur2 = np.ones((1, 1, 3)).astype('float32') / 3
@@ -46,9 +46,9 @@ class ScanNet(object):
         torch.cuda.set_device(config['gpu'])
         torch.manual_seed(100)  # cpu
         torch.cuda.manual_seed(100)  # gpu
-        print('gpu id:', torch.cuda.current_device())
         np.random.seed(100)  # numpy
         torch.backends.cudnn.deterministic = True  # cudnn
+        print('gpu id:', torch.cuda.current_device())
 
     def elastic(self, x, gran, mag):
         if not self.use_elastic:
@@ -106,6 +106,9 @@ class ScanNet(object):
             pth_files.append(self.train_pths[i])
             # checked
             # logger.debug("CHECK RANDOM SEED(np seed): sample id {}".format(np.random.randn(3, 3)))
+            ########################### 
+            if self.config['dataset'] == 'scenenn' and 'cls10' in self.train_pths[0]:
+                a = np.matmul(np.asarray([[1,0,0],[0,0,-1],[0,1,0]]), a.T).T
             m = np.eye(3)
             if (self.use_rotation_noise):
                 m = m + np.random.randn(3, 3) * 0.1
@@ -306,6 +309,9 @@ class ScanNet(object):
                 region_parts = c[:,1]
 
             pth_files.append(self.val_pths[i])
+
+            if self.config['dataset'] == 'scenenn' and 'cls10' in self.train_pths[0]:
+                a = np.matmul(np.asarray([[1,0,0],[0,0,-1],[0,1,0]]), a.T).T
             m = np.eye(3)
             m[0][0] *= np.random.randint(0, 2) * 2 - 1
             m *= self.scale
@@ -463,9 +469,9 @@ class ScanNet(object):
         valLabels = np.hstack(valLabels)
 
         val_data_loader = torch.utils.data.DataLoader(
-            list(range(len(self.val))), batch_size=self.batch_size,
+            list(range(len(self.val))), batch_size=2,
             collate_fn=partial(self.valMerge, val=self.val, valOffsets=valOffsets), num_workers=10,
-            shuffle=True)
+            shuffle=False)
         return valOffsets, train_data_loader, val_data_loader, valLabels
 
 
@@ -486,6 +492,7 @@ class ScanNetOnline(object):
                 self.train_pths += glob.glob(train_pth)
         else:
             self.train_pths = glob.glob(train_pth_path)
+        self.config = config
         self.train_scene_masks = []
         self.val_pths = glob.glob(val_pth_path)
         self.train, self.val = [], []
@@ -568,6 +575,8 @@ class ScanNetOnline(object):
             pth_files.append(self.train_pths[i])
             # checked
             # logger.debug("CHECK RANDOM SEED(np seed): sample id {}".format(np.random.randn(3, 3)))
+            if self.config['dataset'] == 'scenenn' and 'cls10' in self.train_pths[0]:
+                a = np.matmul(np.asarray([[1,0,0],[0,0,-1],[0,1,0]]), a.T).T
             m = np.eye(3)
             if (self.use_rotation_noise):
                 m = m + np.random.randn(3, 3) * 0.1
@@ -777,6 +786,8 @@ class ScanNetOnline(object):
                 region_parts = c[:,1]
 
             pth_files.append(self.val_pths[i])
+            if self.config['dataset'] == 'scenenn' and 'cls10' in self.train_pths[0]:
+                a = np.matmul(np.asarray([[1,0,0],[0,0,-1],[0,1,0]]), a.T).T
             m = np.eye(3)
             m[0][0] *= np.random.randint(0, 2) * 2 - 1
             m *= self.scale
@@ -904,7 +915,6 @@ class ScanNetOnline(object):
         # avoid open file number limits.https://www.cnblogs.com/zhengbiqing/p/10478311.html
         torch.multiprocessing.set_sharing_strategy('file_system')
 
-
         for x in tqdm(torch.utils.data.DataLoader(
                 self.train_pths,
                 collate_fn=lambda x: torch.load(x[0]), 
@@ -912,7 +922,8 @@ class ScanNetOnline(object):
             self.train.append(x)
         for x in tqdm(torch.utils.data.DataLoader(
                 self.train_pths,
-                collate_fn=lambda x: torch.load(os.path.join(x[0][:x[0].find('scene')+12], 'online_masks', self.partial_masks_name)), 
+                collate_fn=lambda x: torch.load(os.path.join(x[0][:x[0].find('scene')+12], 'online_masks', self.partial_masks_name)) if self.config['dataset'] == 'scannet' \
+                                else torch.load(os.path.join(os.path.dirname(x[0]), self.partial_masks_name)), 
                 num_workers=mp.cpu_count())):
             self.train_scene_masks.append(x)
 
@@ -945,7 +956,7 @@ class ScanNetOnline(object):
         valLabels = np.hstack(valLabels)
 
         val_data_loader = torch.utils.data.DataLoader(
-            list(range(len(self.val))), batch_size=self.batch_size,
+            list(range(len(self.val))), batch_size=2,
             collate_fn=partial(self.valMerge, val=self.val, valOffsets=valOffsets), num_workers=10,
-            shuffle=True)
+            shuffle=False)
         return valOffsets, train_data_loader, val_data_loader, valLabels

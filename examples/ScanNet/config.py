@@ -52,7 +52,7 @@ def get_args():
     parser.add_option('--full_scale', default=4096, type='int')
     parser.add_option('--rotation_guide_level', default=0, type='int', help='Kernel Size')
 
-    parser.add_option('--uncertain_task_weight', type='float', default=10.0, help='uncertain task weight')   
+    parser.add_option('--uncertain_task_weight', type='float', default=0.2, help='uncertain task weight')   
     parser.add_option('--evaluate', default=False, action='store_true')
     parser.add_option('--test', default=False, action='store_true')
     parser.add_option('--use_dense_model', default=False, action='store_true')
@@ -80,7 +80,7 @@ def get_args():
     parser.add_option('--gpu', default='0', type='int', help='use which gpu')
     parser.add_option('--mask_name', default='m25_50_75.pth', type='str')
     parser.add_option('--uncertain_st_epoch', default=0, type='int', help='epoch to start uncertain loss')
-    parser.add_option('--uncertain_weight', default=8.0, type='float', help='uncertian bce postive weight')
+    parser.add_option('--uncertain_weight', default=15.0, type='float', help='uncertian bce postive weight')
     parser.add_option('--pretrain', type='str', default='none', help='pretrain path')
     parser.add_option('--freeze_type', default='none', type='str', help='freeze type: 1. unet 2. unetex4  3.backbone')
     parser.add_option('--alpha', type=float, default=1.0, help='discriminative loss var weight')
@@ -116,7 +116,7 @@ def ArgsToConfig(args):
 #    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 6 * args.m, 8 * args.m, 12 * args.m]
 #    config['unet_structure'] = [2 * args.m, 2.5 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m, 7 * args.m]
     config['pretrain'] = args.pretrain
-    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 5 * args.m, 6 * args.m]
+    config['unet_structure'] = [args.m, 2 * args.m, 3 * args.m, 4 * args.m, 5 * args.m]
     config['kernel_size'] = args.kernel_size
     config['classification_weight'] = args.classification_weight
     config['use_rotation_noise'] = args.use_rotation_noise

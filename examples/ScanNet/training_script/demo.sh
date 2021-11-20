@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
-   TASK_NAME=occuseg_training_0
+   source activate p1
+   TASK_NAME=demo
    python -u train_instance.py  \
    --taskname $TASK_NAME \
-   --dataset scannet\
-   --batch_size 5\
+   --batch_size 4\
    --loss cross_entropy \
    --optim Adam \
    --lr 1e-3 \
@@ -17,28 +17,35 @@
    --checkpoints_dir ./ckpts/$TASK_NAME/ \
    --checkpoint 0 \
    --snapshot 10 \
-   --m 64\ 
+   --m 32 \
    --block_reps 1 \
-   --scale 50 \
+   --scale 20 \
    --residual_blocks \
    --kernel_size 3 \
    --use_rotation_noise \
-   --val_reps 3 \
+   --val_reps 1 \
    --use_feature c \
-   --evaluate \
    --use_dense_model \
-   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch240.pth \
-  --all_to_train  
-#   --use_elastic \
-#   --checkpoint_file ckpts/lhanaf_dense_m32r1b2_instance/Epoch320.pth \
-#   --simple_train	\
+   --use_elastic \
+   --model_type uncertain \
+   --gpu 0 \
+   --dataset scannet \
+   --pretrain ./ckpts/weight.pth \
+   --mask_name m33_66.pth \
+   --uncertain_weight 20 \
+   --uncertain_task_weight 0.2 \
+   --consistency_weight 1.0 \
+   --uncertain_st_epoch 0 \
+   --bceloss weighted_bce \
+   --restore
+#    --simple_train
+#   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
+#    --all_to_train
+#   --checkpoint_file ckpts/lhanaf_dense_m32r1b4_instance_validation_l2/Epoch400.pth
+#   --all_to_train \
+#   --simple_train \
 
-
-#   python evaluate_instance.py  \
-#   --taskname $TASK_NAME \
-#   --dataset scannet\
-#   --evaluate
-#    echo "Done"
+    echo "Done"
 
 # if you want to schedule multiple gpu jobs on a server, better to use this tool.
 # run: `bash ./qsub-SurfaceNet_inference.sh`
