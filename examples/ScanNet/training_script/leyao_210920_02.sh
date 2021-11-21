@@ -2,9 +2,10 @@
 
 #block(name=occuseg_training_0, threads=10, memory=100000, subtasks=1, gpu=true, hours=200)
    source activate p1
-   TASK_NAME=demo_m32_s20_rep2
+   TASK_NAME=leyao_210920_02
    python -u train_instance.py  \
    --taskname $TASK_NAME \
+   --dataset scannet\
    --batch_size 2\
    --loss cross_entropy \
    --optim Adam \
@@ -17,8 +18,8 @@
    --checkpoints_dir ./ckpts/$TASK_NAME/ \
    --checkpoint 0 \
    --snapshot 10 \
-   --m 32 \
-   --block_reps 2 \
+   --m 16 \
+   --block_reps 1 \
    --scale 20 \
    --residual_blocks \
    --kernel_size 3 \
@@ -28,16 +29,13 @@
    --use_dense_model \
    --use_elastic \
    --model_type uncertain \
-   --gpu 0 \
-   --dataset scannet\
+   --gpu 2\
    --mask_name m33_66.pth \
-   --uncertain_weight 5 \
-   --uncertain_task_weight 0.2 \
-   --consistency_weight 1.0 \
-   --uncertain_st_epoch 0 \
    --bceloss weighted_bce \
-   --pretrain ./ckpts/unet_scale20_m32__rep2.pth \
-   --restore
+   --pretrain ./ckpts/test_train/Epoch260.pth\
+   --uncertain_task_weight 0.2 \
+   --uncertain_weight 20.0\
+   --feats_consist_weight 10
 #    --simple_train
 #   --checkpoint_file ckpts/lhanaf_instance_s50_val_rep1_withElastic/Epoch250.pth
 #    --all_to_train
