@@ -1,0 +1,52 @@
+jobs:
+  include:
+    - os: linux
+      language: python
+      python: 3.7
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - gcc-5
+            - g++-5
+      env:
+        - CC=gcc-5
+        - CXX=g++-5
+    - os: osx
+      language: sh
+      before_cache:
+        - brew cleanup
+      cache:
+        directories:
+          - $HOME/Library/Caches/Homebrew
+          - /usr/local/Homebrew
+      addons:
+        homebrew:
+          packages: python3
+      before_install:
+        - python3 -m pip install --upgrade virtualenv
+        - virtualenv -p python3 --system-site-packages "$HOME/venv"
+        - source "$HOME/venv/bin/activate"
+      env:
+        - CC=clang
+        - CXX=clang++
+install:
+  - pip install numpy
+  - pip install --pre torch torchvision -f https://download.pytorch.org/whl/nightly/cpu/torch_nightly.html
+  - pip install pycodestyle
+  - pip install flake8
+  - pip install codecov
+  - pip install sphinx
+  - pip install sphinx_rtd_theme
+script:
+  - python -c "import torch; print(torch.__version__)"
+  - pycodestyle .
+  - flake8 .
+  - python setup.py install
+  - python setup.py test
+  - cd docs && make clean && make html && make doctest && cd ..
+after_success:
+  - codecov
+notifications:
+  email: false
