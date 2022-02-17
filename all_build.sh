@@ -13,6 +13,7 @@ mkdir build
 cd build
 cmake ..
 make -j32
+sudo make install
 cd ../../..
 #
 ## make easy profile
@@ -23,6 +24,7 @@ mkdir build
 cd build
 cmake ..
 make -j32
+sudo make install
 cd ../../..
 #
 #

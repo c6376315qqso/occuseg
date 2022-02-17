@@ -16,6 +16,7 @@ examples/ScanNet/datasets/scenenn_data
 examples/ScanNet/q.log
 examples/ScanNet/runs
 examples/ScanNet/.zt_*
+examples/ScanNet/datasets/scannet*.zip
 *.mat
 examples/ScanNet/predictions/
 examples/ScanNet/semantic_prediction/

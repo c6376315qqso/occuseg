@@ -1,8 +1,9 @@
-name: occuseg
+name: p1
 channels:
   - pytorch
-  - conda-forge
+  - daleydeng
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=main
@@ -13,11 +14,12 @@ dependencies:
   - blas=1.0=mkl
   - bleach=1.4.2=py36_0
   - c-ares=1.15.0=h7b6447c_1
-  - ca-certificates=2020.1.1=0
-  - certifi=2019.11.28=py36_0
+  - ca-certificates=2021.10.26=h06a4308_2
+  - certifi=2021.5.30=py36h06a4308_0
   - cffi=1.12.1=py36h2e261b9_0
-  - cudatoolkit=9.0=h13b8566_0
+  - cudatoolkit=10.0.130=0
   - cycler=0.10.0=py36_0
+  - dataclasses=0.8=pyh4f3eec9_6
   - dbus=1.13.12=h746ee38_0
   - decorator=4.3.2=py36_0
   - entrypoints=0.3=py36_0
@@ -25,6 +27,7 @@ dependencies:
   - fontconfig=2.13.0=h9420a91_0
   - freetype=2.9.1=h8a8886c_1
   - gast=0.2.2=py36_0
+  - gcc-5=5.4.0=2
   - glib=2.63.1=h5a9c865_0
   - gmp=6.1.2=h6c8ec71_1
   - google-sparsehash=2.0.3=1
@@ -40,6 +43,7 @@ dependencies:
   - ipython=7.3.0=py36h39e3cac_0
   - ipython_genutils=0.2.0=py36_0
   - ipywidgets=7.4.2=py36_0
+  - isl=0.17.1=0
   - jedi=0.13.3=py36_0
   - jpeg=9b=h024ee3a_2
   - jsonschema=2.6.0=py36_0
@@ -68,6 +72,8 @@ dependencies:
   - mkl=2019.1=144
   - mkl_fft=1.0.10=py36ha843d7b_0
   - mkl_random=1.0.2=py36hd81dba3_0
+  - mpc=1.1.0=h10f8cd9_1
+  - mpfr=4.0.2=hb69a4c5_1
   - nbconvert=5.3.1=py36_0
   - nbformat=4.4.0=py36_0
   - ncurses=6.1=he6710b0_1
@@ -76,7 +82,7 @@ dependencies:
   - numpy=1.15.4=py36h7e9f1db_0
   - numpy-base=1.15.4=py36hde5b4d6_0
   - olefile=0.46=py36_0
-  - openssl=1.1.1d=h7b6447c_4
+  - openssl=1.1.1m=h7f8727e_0
   - pandoc=2.2.3.2=0
   - pandocfilters=1.4.2=py36_1
   - parso=0.3.4=py36_0
@@ -96,7 +102,7 @@ dependencies:
   - pyqt=5.9.2=py36h05f1152_2
   - python=3.6.8=h0371630_0
   - python-dateutil=2.8.0=py36_0
-  - pytorch=1.1.0=py3.6_cuda9.0.176_cudnn7.5.1_0
+  - pytorch=1.1.0=py3.6_cuda10.0.130_cudnn7.5.1_0
   - pytz=2019.3=py_0
   - pyzmq=18.0.0=py36he6710b0_0
   - qt=5.9.7=h5867ecd_1
@@ -115,7 +121,7 @@ dependencies:
   - terminado=0.8.1=py36_1
   - testpath=0.4.2=py36_0
   - tk=8.6.8=hbc83047_0
-  - torchvision=0.2.2=py_3
+  - torchvision=0.3.0=py36_cu10.0.130_1
   - tornado=5.1.1=py36h7b6447c_0
   - traitlets=4.3.2=py36_0
   - wcwidth=0.1.7=py36_0
@@ -169,5 +175,4 @@ dependencies:
     - urllib3==1.25.7
     - werkzeug==0.16.0
     - wrapt==1.11.2
-prefix: /home/zhengtian/envs/miniconda3/envs/p1
-
+prefix: /home/tiger/.conda/envs/p1
